@@ -24,7 +24,11 @@ class WandBLogger(BaseLogger):
         wandb.init(entity=entity, project=project)
     def log_hparams(self, hparam_dict):
         for param, value in hparam_dict.items():
-            wandb.log({param: value})
+            # check if not serializable:
+            try:
+                wandb.log({param: value})
+            except Exception as e:
+                print(f"Could not log {param}: {value}")
     def log_history(self, param, value):
         wandb.log({param: value})
     def log_video(self, video_path, name="video"):

@@ -12,7 +12,7 @@ from Logger import BaseLogger, StdLogger
 
 
 def get_new_params(base_cls_obj, locals):
-    for it in {'self', 'TypeCheckMemo', 'memo', 'check_argument_types'}:
+    for it in {'self', 'args', 'TypeCheckMemo', 'memo', 'check_argument_types', 'env', 'eval_env', 'architecture'}:
         locals.pop(it, None)
     base_class_kwargs = {} if base_cls_obj is None else base_cls_obj.kwargs
 
@@ -28,7 +28,7 @@ class BaseAgent:
                  batch_size: int = 64,
                  buffer_size: int = 100_000,
                  gradient_steps: int = 1,
-                 train_freq: Union[int, Tuple[int, str]] = 1,
+                 train_interval: int = 1,
                  max_grad_norm: float = 10,
                  learning_starts=5_000,
                  device: Union[torch.device, str] = "auto",
@@ -44,18 +44,18 @@ class BaseAgent:
             'batch_size',
             'buffer_size',
             'gradient_steps',
-            'train_freq',
+            'train_interval',
             'max_grad_norm',
             'learning_starts',
         }
 
         self.LOG_PARAMS = {
-            'time/env. steps': 'env_steps',
+            'train/env. steps': 'env_steps',
             'eval/avg_reward': 'avg_eval_rwd',
             'eval/auc': 'eval_auc',
-            'time/num. episodes': 'num_episodes',
-            'time/fps': 'fps',
-            'time/num. updates': '_n_updates',
+            'train/num. episodes': 'num_episodes',
+            'train/fps': 'train_fps',
+            'train/num. updates': '_n_updates',
             'train/lr': 'learning_rate',
         }
 
@@ -88,9 +88,9 @@ class BaseAgent:
         self.save_checkpoints = save_checkpoints
         self.log_interval = log_interval
 
-        self.train_freq = train_freq
-        if isinstance(train_freq, tuple):
-            raise NotImplementedError("train_freq as a tuple is not supported yet.\
+        self.train_interval = train_interval
+        if isinstance(train_interval, tuple):
+            raise NotImplementedError("train_interval as a tuple is not supported yet.\
                                        \nEnter int corresponding to env_steps")
         self.max_grad_norm = max_grad_norm
         self.learning_starts = learning_starts
@@ -154,7 +154,7 @@ class BaseAgent:
 
             # Clip gradient norm
             loss.backward()
-            # torch.nn.utils.clip_grad_norm_(self.model, self.max_grad_norm)
+            torch.nn.utils.clip_grad_norm_(self.model.parameters(), self.max_grad_norm)
             self.optimizer.step()
 
 
@@ -182,9 +182,9 @@ class BaseAgent:
                 done = terminated or truncated
                 self.rollout_reward += reward
 
-                self.train_this_step = (self.train_freq == -1 and terminated) or \
-                    (self.train_freq != -1 and self.env_steps %
-                     self.train_freq == 0)
+                self.train_this_step = (self.train_interval == -1 and terminated) or \
+                    (self.train_interval != -1 and self.env_steps %
+                     self.train_interval == 0)
 
                 # Add the transition to the replay buffer:
                 action = np.array([action])
@@ -229,6 +229,7 @@ class BaseAgent:
         for log_name, class_var in self.LOG_PARAMS.items():
             for logger in self.loggers:
                 logger.log_history(log_name, self.__dict__[class_var])
+
                 # logger.dump(step=self.env_steps)
 
         self.initial_time = time.thread_time_ns()

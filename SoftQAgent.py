@@ -23,7 +23,6 @@ class SoftQAgent(BaseAgent):
         self.nA = self.env.action_space.n
         self.log_hparams(self.kwargs)
         
-
         self.online_softqs = self.architecture
             
         self.model = self.online_softqs
@@ -63,21 +62,15 @@ class SoftQAgent(BaseAgent):
             online_curr_softq = online_curr_softq.squeeze(-1)
 
             next_softqs = self.online_softqs(next_states)
-            # next_softqs = torch.stack(next_softqs, dim=0)
-
-
-            # aggregate the target next softqs:
-            # next_softq = self.aggregator_fn(next_softqs, dim=0)
+            
             next_v = 1/self.beta * (torch.logsumexp(
                 self.beta * next_softqs, dim=-1) - torch.log(torch.Tensor([self.nA])).to(self.device))
             next_v = next_v.reshape(-1, 1)
 
             # Backup equation:
             expected_curr_softq = rewards + self.gamma * next_v * (1-dones)
-            expected_curr_softq = expected_curr_softq.squeeze(1)
+            # expected_curr_softq = expected_curr_softq.squeeze(1)
 
-        # num_nets, batch_size, 1 (leftover from actions)
-        # curr_softq = curr_softq.squeeze(2)
 
         # Calculate the softq ("critic") loss:
         loss = 0.5*torch.nn.functional.mse_loss(curr_softq, expected_curr_softq)
@@ -93,6 +86,8 @@ class SoftQAgent(BaseAgent):
 if __name__ == '__main__':
     import gymnasium as gym
     env = gym.make('CartPole-v1')
+    from Logger import WandBLogger
+    logger = WandBLogger(entity='jacobhadamczyk', project='test')
     mlp = make_mlp(env.unwrapped.observation_space.shape[0], env.unwrapped.action_space.n, hidden_dims=[128, 128])
-    agent = SoftQAgent(env, architecture=mlp)
-    agent.learn(total_timesteps=10000)
+    agent = SoftQAgent(env, architecture=mlp, loggers=(logger,), max_grad_norm=0.5)
+    agent.learn(total_timesteps=50000)
