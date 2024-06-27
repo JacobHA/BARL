@@ -63,7 +63,7 @@ class StdLogger(BaseLogger):
             # self.log.info(param, value)
             self.log.info(f"{param}: {value}")
     def log_history(self, param, value):
-        self.log.info(param, value)
+        self.log.info(f"{param}: {value}")
     @lru_cache(None)
     def log_video(self, *args, **kwargs):
         self.log.warn("videos are not logged by std logger")

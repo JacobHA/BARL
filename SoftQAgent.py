@@ -9,6 +9,7 @@ class SoftQAgent(BaseAgent):
     def __init__(self,
                  *args,
                  gamma: float = 0.99,
+                 beta: float = 5.0,
                  **kwargs,
                  ):
         
@@ -17,6 +18,7 @@ class SoftQAgent(BaseAgent):
         
         self.algo_name = 'SQL'
         self.gamma = gamma
+        self.beta = beta
        
         self.log_hparams(self.kwargs)
         
@@ -30,7 +32,7 @@ class SoftQAgent(BaseAgent):
 
     def exploration_policy(self, state: np.ndarray) -> int:
         # return self.env.action_space.sample()
-        qvals = self.online_softqs(state)
+        qvals = self.online_softqs(torch.tensor(state))
         # calculate boltzmann policy:
         qvals = qvals.squeeze()
         qvals = qvals - torch.max(qvals)
@@ -95,4 +97,4 @@ if __name__ == '__main__':
     env = gym.make('CartPole-v1')
     mlp = make_mlp(env.unwrapped.observation_space.shape[0], env.unwrapped.action_space.n, hidden_dims=[128, 128])
     agent = SoftQAgent(env, architecture=mlp)
-    agent.learn(total_timesteps=100)
+    agent.learn(total_timesteps=10000)

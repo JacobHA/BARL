@@ -186,8 +186,9 @@ class BaseAgent:
                     self._log_stats()
 
             if done:
-                self.logger.record("rollout/ep_reward", self.rollout_reward)
-                self.logger.record("rollout/avg_episode_length", avg_ep_len)
+                for logger in self.loggers:
+                    logger.log_history("rollout/ep_reward", self.rollout_reward)
+                    logger.log_history("rollout/avg_episode_length", avg_ep_len)
                 
 
     def _on_step(self):
