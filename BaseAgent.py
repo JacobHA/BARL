@@ -49,6 +49,17 @@ class BaseAgent:
             'learning_starts',
         }
 
+        self.LOG_PARAMS = {
+            'time/env. steps': 'env_steps',
+            'eval/avg_reward': 'avg_eval_rwd',
+            'eval/auc': 'eval_auc',
+            'time/num. episodes': 'num_episodes',
+            'time/fps': 'fps',
+            'time/num. updates': '_n_updates',
+            'train/lr': 'learning_rate',
+        }
+
+
         self.kwargs = get_new_params(None, locals())
         self.env, self.eval_env = env_id_to_envs(env_id, render)
 
@@ -139,12 +150,12 @@ class BaseAgent:
             batch = self.buffer.sample(batch_size)
 
             loss = self.gradient_descent(batch)
-            self.optimizers.zero_grad()
+            self.optimizer.zero_grad()
 
             # Clip gradient norm
             loss.backward()
-            self.model.clip_grad_norm(self.max_grad_norm)
-            self.optimizers.step()
+            # torch.nn.utils.clip_grad_norm_(self.model, self.max_grad_norm)
+            self.optimizer.step()
 
 
     def learn(self, total_timesteps: int):
@@ -215,11 +226,11 @@ class BaseAgent:
         
         # Get the current learning rate from the optimizer:
         # log_class_vars(self, self.logger, LOG_PARAMS)
-        for param in self.LOG_PARAMS:
-            self.logger.log(param, self.__dict__[param])
-        
-        
-        self.logger.dump(step=self.env_steps)
+        for log_name, class_var in self.LOG_PARAMS.items():
+            for logger in self.loggers:
+                logger.log_history(log_name, self.__dict__[class_var])
+                # logger.dump(step=self.env_steps)
+
         self.initial_time = time.thread_time_ns()
 
     def evaluate(self, n_episodes=10) -> float:
@@ -241,16 +252,16 @@ class BaseAgent:
                 done = terminated or truncated
 
         avg_reward /= n_episodes
-        self.logger.log('eval/avg_episode_length', n_steps / n_episodes)
         final_time = time.process_time_ns()
         eval_time = (final_time - self.initial_time) / 1e9
         eval_fps = n_steps / eval_time
-        self.logger.log('eval/time', eval_time)
-        self.logger.log('eval/fps', eval_fps)
         self.eval_time = eval_time
         self.eval_fps = eval_fps
         self.avg_eval_rwd = avg_reward
-
+        for logger in self.loggers:
+            logger.log_history('eval/avg_episode_length', n_steps / n_episodes)
+            logger.log_history('eval/time', eval_time)
+            logger.log_history('eval/fps', eval_fps)
         return avg_reward
 
     def save(self, path=None):

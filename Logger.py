@@ -5,17 +5,6 @@ import logging
 import wandb
 
 
-
-LOG_PARAMS = {
-    'time/env. steps': 'env_steps',
-    'eval/avg_reward': 'avg_eval_rwd',
-    'eval/auc': 'eval_auc',
-    'time/num. episodes': 'num_episodes',
-    'time/fps': 'fps',
-    'time/num. updates': '_n_updates',
-    'train/lr': 'learning_rate',
-}
-
 logger_types = {'wandb', 'std', 'tensorboard'}
 
 

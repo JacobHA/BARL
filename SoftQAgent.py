@@ -20,6 +20,7 @@ class SoftQAgent(BaseAgent):
         self.gamma = gamma
         self.beta = beta
        
+        self.nA = self.env.action_space.n
         self.log_hparams(self.kwargs)
         
 
@@ -44,34 +45,31 @@ class SoftQAgent(BaseAgent):
 
     def evaluation_policy(self, state: np.ndarray) -> int:
         # Get the greedy action from the q values:
-        qvals = self.online_softqs(state)
+        qvals = self.online_softqs(torch.tensor(state))
         qvals = qvals.squeeze()
         return torch.argmax(qvals).item()
     
 
     def gradient_descent(self, batch):
         states, actions, next_states, dones, rewards = batch
-        curr_softq = torch.stack([softq(states).squeeze().gather(1, actions.long())
-                                for softq in self.online_softqs], dim=0)
+        curr_softq = self.online_softqs(states).squeeze().gather(1, actions.long())
         with torch.no_grad():
             if isinstance(self.env.observation_space, gymnasium.spaces.Discrete):
                 states = states.squeeze()
                 next_states = next_states.squeeze()
             
-            online_curr_softq = torch.stack([softq(states).gather(1, actions)
-                                            for softq in self.online_softqs], dim=0)
+            online_curr_softq = self.online_softqs(states).gather(1, actions)
 
             online_curr_softq = online_curr_softq.squeeze(-1)
 
-            next_softqs = [target_softq(next_states)
-                                 for target_softq in self.target_softqs]
-            next_softqs = torch.stack(next_softqs, dim=0)
+            next_softqs = self.online_softqs(next_states)
+            # next_softqs = torch.stack(next_softqs, dim=0)
 
 
             # aggregate the target next softqs:
-            next_softq = self.aggregator_fn(next_softqs, dim=0)
+            # next_softq = self.aggregator_fn(next_softqs, dim=0)
             next_v = 1/self.beta * (torch.logsumexp(
-                self.beta * next_softq, dim=-1) - torch.log(torch.Tensor([self.nA])).to(self.device))
+                self.beta * next_softqs, dim=-1) - torch.log(torch.Tensor([self.nA])).to(self.device))
             next_v = next_v.reshape(-1, 1)
 
             # Backup equation:
@@ -79,16 +77,16 @@ class SoftQAgent(BaseAgent):
             expected_curr_softq = expected_curr_softq.squeeze(1)
 
         # num_nets, batch_size, 1 (leftover from actions)
-        curr_softq = curr_softq.squeeze(2)
-
-        self.logger.record("train/online_q_mean", curr_softq.mean().item())
+        # curr_softq = curr_softq.squeeze(2)
 
         # Calculate the softq ("critic") loss:
-        loss = 0.5*sum(self.loss_fn(softq, expected_curr_softq)
-                       for softq in curr_softq)
+        loss = 0.5*torch.nn.functional.mse_loss(curr_softq, expected_curr_softq)
         
-        # log the loss:
-        self.logger.log("train/loss", loss.item())
+        for logger in self.loggers:
+            logger.log_history("train/online_q_mean", curr_softq.mean().item())
+            # log the loss:
+            logger.log_history("train/loss", loss.item())
+
         return loss
 
 
