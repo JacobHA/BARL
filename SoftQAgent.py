@@ -49,7 +49,7 @@ class SoftQAgent(BaseAgent):
         return torch.argmax(qvals).item()
     
 
-    def gradient_descent(self, batch):
+    def loss(self, batch):
         states, actions, next_states, dones, rewards = batch
         curr_softq = self.online_softqs(states).squeeze().gather(1, actions.long())
         with torch.no_grad():
