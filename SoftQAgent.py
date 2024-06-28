@@ -4,7 +4,7 @@ import numpy as np
 import torch
 from Architectures import make_mlp
 from BaseAgent import BaseAgent, get_new_params
-from utils import logger_at_folder
+from utils import polyak
 
 class SoftQAgent(BaseAgent):
     def __init__(self,
@@ -13,6 +13,7 @@ class SoftQAgent(BaseAgent):
                  beta: float = 5.0,
                  use_target_network: bool = False,
                  target_update_interval: Optional[int] = None,
+                 polyak_tau: Optional[float] = None,
                  **kwargs,
                  ):
         
@@ -24,6 +25,7 @@ class SoftQAgent(BaseAgent):
         self.beta = beta
         self.use_target_network = use_target_network
         self.target_update_interval = target_update_interval
+        self.polyak_tau = polyak_tau
        
         self.nA = self.env.action_space.n
         self.log_hparams(self.kwargs)
@@ -32,7 +34,12 @@ class SoftQAgent(BaseAgent):
         if self.use_target_network:
             self.target_softqs = self.architecture
             self.target_softqs.load_state_dict(self.online_softqs.state_dict())
-        
+            if polyak_tau is not None:
+                assert 0 <= polyak_tau <= 1, "Polyak tau must be in the range [0, 1]."
+                self.polyak_tau = polyak_tau
+            else:
+                print("WARNING: No polyak tau specified for soft target updates. Using default tau=1 for hard updates.")
+                self.polyak_tau = 1.0
         # Alias the "target" with online net if target is not used:
         else:
             self.target_softqs = self.online_softqs
@@ -94,7 +101,9 @@ class SoftQAgent(BaseAgent):
     def _on_step(self) -> None:
         # Periodically update the target network:
         if self.use_target_network and self.env_steps % self.target_update_interval == 0:
-            self.target_softqs.load_state_dict(self.online_softqs.state_dict())
+            # Use Polyak averaging as specified:
+            polyak(self.online_softqs, self.target_softqs, self.polyak_tau)
+            # self.target_softqs.load_state_dict(self.online_softqs.state_dict())
         super()._on_step()
 
 
@@ -114,6 +123,7 @@ if __name__ == '__main__':
                        gradient_steps=1,
                        batch_size=256,
                        use_target_network=True,
-                       target_update_interval=10
+                       target_update_interval=10,
+                       polyak_tau=1.0
                        )
     agent.learn(total_timesteps=50000)
