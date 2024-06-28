@@ -165,6 +165,7 @@ class BaseAgent:
         """
         Train the agent for total_timesteps
         """
+        self.total_timesteps = total_timesteps
         # Start a timer to log fps:
         init_train_time = time.thread_time_ns()
 

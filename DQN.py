@@ -34,7 +34,9 @@ class DQN(BaseAgent):
        
         self.nA = self.env.action_space.n
         self.log_hparams(self.kwargs)
+
         self.online_qs = self.architecture
+
         self.model = self.online_qs
 
 
@@ -125,7 +127,7 @@ if __name__ == '__main__':
     #logger = WandBLogger(entity='jacobhadamczyk', project='test')
     mlp = make_mlp(env.unwrapped.observation_space.shape[0], env.unwrapped.action_space.n, hidden_dims=[32, 32])#, activation=torch.nn.Mish)
     agent = DQN(env, 
-                architecture=mlp, 
+                architecture=mlp,
                 loggers=(logger,),
                 learning_rate=0.001,
                 train_interval=1,
