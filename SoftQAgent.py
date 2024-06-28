@@ -2,9 +2,10 @@ from typing import Optional
 import gymnasium
 import numpy as np
 import torch
+
 from Architectures import make_mlp
-from utils import polyak
 from BaseAgent import BaseAgent, get_new_params, AUCCallback
+from utils import logger_at_folder, polyak
 
 
 class SoftQAgent(BaseAgent):
@@ -118,10 +119,10 @@ if __name__ == '__main__':
     env = gym.make('CartPole-v1')
     from Logger import WandBLogger, TensorboardLogger
     logger = TensorboardLogger('logs/cartpole')
-    device= 'c'
+    device= 'cuda'
     #logger = WandBLogger(entity='jacobhadamczyk', project='test')
-    mlp = make_mlp(env.unwrapped.observation_space.shape[0], env.unwrapped.action_space.n, hidden_dims=[32, 32], device='cuda')
-    agent = SoftQAgent(env, 
+    mlp = make_mlp(env.unwrapped.observation_space.shape[0], env.unwrapped.action_space.n, hidden_dims=[32, 32], device=device)
+    agent = SoftQAgent(env,
                        architecture=mlp, 
                        loggers=(logger,),
                        learning_rate=0.001,
