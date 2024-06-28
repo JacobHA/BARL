@@ -5,9 +5,24 @@ This codebase provides implementations of many RL algorithms with the goal of be
 
 ## TODO:
 In the future we would like to have implemented:
--[ ] DQN
--[ ] SQL
--[ ] SAC
--[ ] Rainbow DQN
--[ ] TD3
--[ ] PPO
+
+### Algorithms
+
+- [ ] DQN
+
+- [ ] SQL
+
+- [ ] SAC
+
+- [ ] Rainbow DQN
+
+- [ ] TD3
+
+- [ ] PPO
+
+### Architectures:
+- [ ] MLP
+- [ ] CNN
+- [ ] LSTM
+- [ ] Dueling architectures
+      
