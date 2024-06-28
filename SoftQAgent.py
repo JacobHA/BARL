@@ -106,7 +106,7 @@ class SoftQAgent(BaseAgent):
         if self.use_target_network and self.env_steps % self.target_update_interval == 0:
             # Use Polyak averaging as specified:
             polyak(self.online_softqs, self.target_softqs, self.polyak_tau)
-            # self.target_softqs.load_state_dict(self.online_softqs.state_dict())
+
         super()._on_step()
 
 
