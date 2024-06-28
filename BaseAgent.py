@@ -161,6 +161,7 @@ class BaseAgent:
         """
         Train the agent for total_timesteps
         """
+        self.total_timesteps = total_timesteps
         # Start a timer to log fps:
         self.initial_time = time.thread_time_ns()
 
@@ -200,7 +201,7 @@ class BaseAgent:
                     logger.log_history("rollout/ep_reward", self.rollout_reward, self.env_steps)
                     logger.log_history("rollout/avg_episode_length", avg_ep_len, self.env_steps)
 
-    def _on_step(self):
+    def _on_step(self) -> None:
         """
         This method is called after every step in the environment
         """
