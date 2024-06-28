@@ -6,18 +6,12 @@ This codebase provides implementations of many RL algorithms with the goal of be
 ## TODO:
 In the future we would like to have implemented:
 
-### Algorithms
-
+### Algorithms:
 - [ ] DQN
-
 - [ ] SQL
-
 - [ ] SAC
-
 - [ ] Rainbow DQN
-
 - [ ] TD3
-
 - [ ] PPO
 
 ### Architectures:
