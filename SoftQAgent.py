@@ -49,7 +49,7 @@ class SoftQAgent(BaseAgent):
         return torch.argmax(qvals).item()
     
 
-    def loss(self, batch):
+    def calculate_loss(self, batch):
         states, actions, next_states, dones, rewards = batch
         curr_softq = self.online_softqs(states).squeeze().gather(1, actions.long())
         with torch.no_grad():

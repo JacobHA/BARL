@@ -134,7 +134,7 @@ class BaseAgent:
     def evaluation_policy(self, state: np.ndarray):
         raise NotImplementedError()
 
-    def loss(self, batch):
+    def calculate_loss(self, batch):
         raise NotImplementedError()
 
     def _train(self, gradient_steps: int, batch_size: int) -> None:
@@ -149,7 +149,7 @@ class BaseAgent:
             # Sample a batch from the replay buffer:
             batch = self.buffer.sample(batch_size)
 
-            loss = self.loss(batch)
+            loss = self.calculate_loss(batch)
             self.optimizer.zero_grad()
 
             # Clip gradient norm
