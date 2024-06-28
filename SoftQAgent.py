@@ -40,6 +40,10 @@ class SoftQAgent(BaseAgent):
             else:
                 print("WARNING: No polyak tau specified for soft target updates. Using default tau=1 for hard updates.")
                 self.polyak_tau = 1.0
+
+            if target_update_interval is None:
+                print("WARNING: Target network update interval not specified. Using default interval of 1 step.")
+                self.target_update_interval = 1
         # Alias the "target" with online net if target is not used:
         else:
             self.target_softqs = self.online_softqs
