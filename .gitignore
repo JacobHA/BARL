@@ -2,3 +2,4 @@ wandb
 *.pyc
 .vscode
 __pycache__
+*.tfevents.*
