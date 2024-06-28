@@ -35,11 +35,10 @@ class SoftQAgent(BaseAgent):
         qvals = self.online_softqs(torch.tensor(state))
         # calculate boltzmann policy:
         qvals = qvals.squeeze()
-        qvals = qvals - torch.max(qvals)
-        qvals = qvals/self.beta
-        qvals = torch.exp(qvals)
-        qvals = qvals/torch.sum(qvals)
-        return torch.multinomial(qvals, 1).item()
+        # sample from logits:
+        pi = torch.distributions.Categorical(logits = self.beta * qvals)
+        action = pi.sample()
+        return action.item()
     
 
     def evaluation_policy(self, state: np.ndarray) -> int:
@@ -69,8 +68,6 @@ class SoftQAgent(BaseAgent):
 
             # Backup equation:
             expected_curr_softq = rewards + self.gamma * next_v * (1-dones)
-            # expected_curr_softq = expected_curr_softq.squeeze(1)
-
 
         # Calculate the softq ("critic") loss:
         loss = 0.5*torch.nn.functional.mse_loss(curr_softq, expected_curr_softq)
@@ -90,5 +87,13 @@ if __name__ == '__main__':
     logger = TensorboardLogger('logs/cartpole')
     #logger = WandBLogger(entity='jacobhadamczyk', project='test')
     mlp = make_mlp(env.unwrapped.observation_space.shape[0], env.unwrapped.action_space.n, hidden_dims=[32, 32])
-    agent = SoftQAgent(env, architecture=mlp, loggers=(logger,), max_grad_norm=10)
+    agent = SoftQAgent(env, 
+                       architecture=mlp, 
+                       loggers=(logger,),
+                       learning_rate=0.001,
+                       beta=0.5,
+                       train_interval=1,
+                       gradient_steps=1,
+                       batch_size=256,
+                       )
     agent.learn(total_timesteps=50000)

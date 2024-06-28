@@ -24,7 +24,7 @@ class BaseAgent:
     def __init__(self,
                  env_id: Union[str, gym.Env],
                  architecture: Union[str, torch.nn.Module] = "mlp",
-                 learning_rate: float = 1e-3,
+                 learning_rate: float = 3e-4,
                  batch_size: int = 64,
                  buffer_size: int = 100_000,
                  gradient_steps: int = 1,
