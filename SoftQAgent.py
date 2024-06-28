@@ -3,8 +3,9 @@ import gymnasium
 import numpy as np
 import torch
 from Architectures import make_mlp
-from BaseAgent import BaseAgent, get_new_params
+from BaseAgent import BaseAgent, get_new_params, AUCCallback
 from utils import polyak
+
 
 class SoftQAgent(BaseAgent):
     def __init__(self,
@@ -26,7 +27,7 @@ class SoftQAgent(BaseAgent):
         self.use_target_network = use_target_network
         self.target_update_interval = target_update_interval
         self.polyak_tau = polyak_tau
-       
+
         self.nA = self.env.action_space.n
         self.log_hparams(self.kwargs)
         
@@ -51,7 +52,7 @@ class SoftQAgent(BaseAgent):
             if target_update_interval is not None:
                 print("WARNING: Target network update interval specified but target network is not used.")
 
-            
+
         self.model = self.online_softqs
 
         # Make (all) softqs learnable:
@@ -59,7 +60,7 @@ class SoftQAgent(BaseAgent):
 
     def exploration_policy(self, state: np.ndarray) -> int:
         # return self.env.action_space.sample()
-        qvals = self.online_softqs(torch.tensor(state))
+        qvals = self.online_softqs(torch.tensor(state, device=self.device))
         # calculate boltzmann policy:
         qvals = qvals.squeeze()
         # sample from logits:
@@ -70,14 +71,16 @@ class SoftQAgent(BaseAgent):
 
     def evaluation_policy(self, state: np.ndarray) -> int:
         # Get the greedy action from the q values:
-        qvals = self.online_softqs(torch.tensor(state))
+        qvals = self.online_softqs(torch.tensor(state, device=self.device))
         qvals = qvals.squeeze()
         return torch.argmax(qvals).item()
     
 
     def calculate_loss(self, batch):
-        states, actions, next_states, dones, rewards = batch
-        curr_softq = self.online_softqs(states).squeeze().gather(1, actions.long())
+        states, actions, rewards, next_states, dones = batch
+        actions = actions.unsqueeze(1).long()
+        dones = dones.float()
+        curr_softq = self.online_softqs(states).squeeze().gather(1, actions)
         with torch.no_grad():
             if isinstance(self.env.observation_space, gymnasium.spaces.Discrete):
                 states = states.squeeze()
@@ -100,7 +103,7 @@ class SoftQAgent(BaseAgent):
         self.log_history("train/loss", loss.item(), self.env_steps)
 
         return loss
-    
+
     def _on_step(self) -> None:
         # Periodically update the target network:
         if self.use_target_network and self.env_steps % self.target_update_interval == 0:
@@ -115,8 +118,9 @@ if __name__ == '__main__':
     env = gym.make('CartPole-v1')
     from Logger import WandBLogger, TensorboardLogger
     logger = TensorboardLogger('logs/cartpole')
+    device= 'c'
     #logger = WandBLogger(entity='jacobhadamczyk', project='test')
-    mlp = make_mlp(env.unwrapped.observation_space.shape[0], env.unwrapped.action_space.n, hidden_dims=[32, 32])
+    mlp = make_mlp(env.unwrapped.observation_space.shape[0], env.unwrapped.action_space.n, hidden_dims=[32, 32], device='cuda')
     agent = SoftQAgent(env, 
                        architecture=mlp, 
                        loggers=(logger,),
@@ -127,6 +131,8 @@ if __name__ == '__main__':
                        batch_size=256,
                        use_target_network=True,
                        target_update_interval=10,
-                       polyak_tau=1.0
+                       polyak_tau=1.0,
+                       eval_callbacks=[AUCCallback],
+                       device='cuda'
                        )
     agent.learn(total_timesteps=50000)

@@ -9,6 +9,7 @@ from typeguard import typechecked
 from utils import log_class_vars, env_id_to_envs, find_torch_modules
 from Logger import BaseLogger, StdLogger
 
+from Buffer import Buffer
 # use get_type_hints to throw errors if the user passes in an invalid type:
 
 
@@ -18,6 +19,22 @@ def get_new_params(base_cls_obj, locals):
     base_class_kwargs = {} if base_cls_obj is None else base_cls_obj.kwargs
 
     return {**locals, **base_class_kwargs}
+
+
+class EvalCallback:
+    def __init__(self, agent: 'BaseAgent'):
+        self.agent = agent
+
+
+class AUCCallback(EvalCallback):
+    def __init__(self, agent: 'BaseAgent'):
+        super().__init__(agent)
+        self.auc = 0
+    def __call__(self, state=None, action=None, reward=None, done=None, end=False):
+        if end:
+            self.agent.log_history('eval/auc', self.auc, self.agent.env_steps)
+            return
+        self.auc += reward
 
 
 class BaseAgent:
@@ -38,17 +55,8 @@ class BaseAgent:
                  log_interval: int = 1_000,
                  save_checkpoints: bool = False,
                  seed: Optional[int] = None,
+                 eval_callbacks: List[callable] = [],
                  ) -> None:
-        
-        self.HPARAM_ATTRS = {
-            'learning_rate',
-            'batch_size',
-            'buffer_size',
-            'gradient_steps',
-            'train_interval',
-            'max_grad_norm',
-            'learning_starts',
-        }
 
         self.LOG_PARAMS = {
             'train/env. steps': 'env_steps',
@@ -59,7 +67,6 @@ class BaseAgent:
             'train/num. updates': '_n_updates',
             'train/lr': 'learning_rate',
         }
-
 
         self.kwargs = get_new_params(None, locals())
         self.env, self.eval_env = env_id_to_envs(env_id, render)
@@ -95,16 +102,15 @@ class BaseAgent:
                                        \nEnter int corresponding to env_steps")
         self.max_grad_norm = max_grad_norm
         self.learning_starts = learning_starts
+        self.eval_callbacks = [eb(self) for eb in eval_callbacks]
         self.avg_eval_rwd = None
         self.fps = None
         self.train_this_step = False
 
-        self.buffer = ReplayBuffer(
+        self.buffer = Buffer(
             buffer_size=buffer_size,
-            observation_space=self.env.observation_space,
-            action_space=self.env.action_space,
-            n_envs=1,
-            handle_timeout_termination=True,
+            state=self.env.observation_space.sample(),
+            action=self.env.action_space.sample(),
             device=device
         )
 
@@ -117,13 +123,11 @@ class BaseAgent:
     def log_hparams(self, hparam_dict):
         # Log the agent's hyperparameters:
         for logger in self.loggers:
-            # hparam_values = {attr: self.__dict__[attr] for attr in self.HPARAM_ATTRS}
             logger.log_hparams(hparam_dict)
 
-    def log_h(self, param, val):
+    def log_history(self, param, *val):
         for logger in self.loggers:
-            # hparam_values = {attr: self.__dict__[attr] for attr in self.HPARAM_ATTRS}
-            logger.log_hparams(param, val)
+            logger.log_history(param, *val)
 
     def _initialize_networks(self):
         raise NotImplementedError()
@@ -161,9 +165,8 @@ class BaseAgent:
         """
         Train the agent for total_timesteps
         """
-        self.total_timesteps = total_timesteps
         # Start a timer to log fps:
-        self.initial_time = time.thread_time_ns()
+        init_train_time = time.thread_time_ns()
 
         while self.env_steps < total_timesteps:
             state, _ = self.env.reset()
@@ -190,12 +193,15 @@ class BaseAgent:
                 action = np.array([action])
                 state = np.array([state])
                 next_state = np.array([next_state])
-                sarsa = (state, next_state, action, reward, terminated)
-                self.buffer.add(*sarsa, [infos])
+                sarsa = (state, action, reward, terminated)
+                self.buffer.add(state, action, reward, terminated)
                 state = next_state
                 if self.env_steps % self.log_interval == 0:
-                    self._log_stats()
-
+                    train_time = (time.thread_time_ns() - init_train_time) / 1e9
+                    train_fps = self.log_interval / train_time
+                    self.log_history('time/train_fps', train_fps, self.env_steps)
+                    self.avg_eval_rwd = self.evaluate()
+                    init_train_time = time.thread_time_ns()
             if done:
                 self.log_history("rollout/ep_reward", self.rollout_reward, self.env_steps)
                 self.log_history("rollout/avg_episode_length", avg_ep_len, self.env_steps)
@@ -210,31 +216,18 @@ class BaseAgent:
             if self.env_steps > self.learning_starts:
                 self._train(self.gradient_steps, self.batch_size)
 
-    def _log_stats(self):
-        # end timer:
-        t_final = time.thread_time_ns()
-        # fps averaged over log_interval steps:
-        self.train_time = (t_final - self.initial_time) / 1e9
-        self.train_fps = self.log_interval / self.train_time
+    def _log_stats(self, train_time, eval_time):
 
-        if self.env_steps > 0:
-            self.avg_eval_rwd = self.evaluate()
-            self.eval_auc += self.avg_eval_rwd
-        
         # Get the current learning rate from the optimizer:
-        # log_class_vars(self, self.logger, LOG_PARAMS)
         for log_name, class_var in self.LOG_PARAMS.items():
             self.log_history(log_name, self.__dict__[class_var], self.env_steps)
-
-                # logger.dump(step=self.env_steps)
-
-        self.initial_time = time.thread_time_ns()
 
     def evaluate(self, n_episodes=10) -> float:
         # run the current policy and return the average reward
         self.initial_time = time.process_time_ns()
         avg_reward = 0.
         n_steps = 0
+        init_eval_time = time.process_time_ns()
         for ep in range(n_episodes):
             state, _ = self.eval_env.reset()
             done = False
@@ -244,20 +237,20 @@ class BaseAgent:
 
                 next_state, reward, terminated, truncated, info = self.eval_env.step(
                     action)
-                avg_reward += reward
                 state = next_state
                 done = terminated or truncated
-
+                for cb in self.eval_callbacks:
+                    cb(state=state, action=action, reward=reward, done=done, end=False)
+        eval_time = (time.process_time_ns() - init_eval_time) / 1e9
         avg_reward /= n_episodes
-        final_time = time.process_time_ns()
-        eval_time = (final_time - self.initial_time) / 1e9
         eval_fps = n_steps / eval_time
         self.eval_time = eval_time
-        self.eval_fps = eval_fps
-        self.avg_eval_rwd = avg_reward
+        self.log_history('eval/avg_reward', avg_reward, self.env_steps)
         self.log_history('eval/avg_episode_length', n_steps / n_episodes, self.env_steps)
         self.log_history('eval/time', eval_time, self.env_steps)
         self.log_history('eval/fps', eval_fps, self.env_steps)
+        for cb in self.eval_callbacks:
+            cb(self, end=True)
         return avg_reward
 
     def save(self, path=None):
