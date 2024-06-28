@@ -3,8 +3,8 @@ import gymnasium
 import numpy as np
 import torch
 from Architectures import make_mlp
-from BaseAgent import BaseAgent, get_new_params, AUCCallback
 from utils import polyak
+from BaseAgent import BaseAgent, get_new_params, AUCCallback
 
 
 class SoftQAgent(BaseAgent):
@@ -17,6 +17,7 @@ class SoftQAgent(BaseAgent):
                  polyak_tau: Optional[float] = None,
                  use_target_network: bool = False,
                  target_update_interval: Optional[int] = None,
+                 polyak_tau: Optional[float] = None,
                  **kwargs,
                  ):
         
