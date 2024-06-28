@@ -1,9 +1,10 @@
+from typing import Optional
 import gymnasium
 import numpy as np
 import torch
 from Architectures import make_mlp
 from BaseAgent import BaseAgent, get_new_params
-from utils import logger_at_folder
+from utils import logger_at_folder, polyak
 
 class DQN(BaseAgent):
     def __init__(self,
@@ -12,6 +13,9 @@ class DQN(BaseAgent):
                  minimum_epsilon: float = 0.05,
                  exploration_fraction: float = 0.5,
                  initial_epsilon: float = 1.0,
+                 use_target_network: bool = False,
+                 target_update_interval: Optional[int] = None,
+                 polyak_tau: Optional[float] = None,
                  **kwargs,
                  ):
         
@@ -24,10 +28,29 @@ class DQN(BaseAgent):
         self.exploration_fraction = exploration_fraction
         self.initial_epsilon = initial_epsilon
         self.epsilon = initial_epsilon
+        self.use_target_network = use_target_network
+        self.target_update_interval = target_update_interval
+        self.polyak_tau = polyak_tau
        
         self.nA = self.env.action_space.n
         self.log_hparams(self.kwargs)
-        
+
+        if self.use_target_network:
+            self.target_qs = self.architecture
+            self.target_qs.load_state_dict(self.online_qs.state_dict())
+            if polyak_tau is not None:
+                assert 0 <= polyak_tau <= 1, "Polyak tau must be in the range [0, 1]."
+                self.polyak_tau = polyak_tau
+            else:
+                print("WARNING: No polyak tau specified for soft target updates. Using default tau=1 for hard updates.")
+                self.polyak_tau = 1.0
+        # Alias the "target" with online net if target is not used:
+        else:
+            self.target_qs = self.online_qs
+            # Raise a warning if update interval is specified:
+            if target_update_interval is not None:
+                print("WARNING: Target network update interval specified but target network is not used.")
+
         self.online_qs = self.architecture
             
         self.model = self.online_qs
@@ -43,6 +66,11 @@ class DQN(BaseAgent):
         if self.env_steps % self.log_interval == 0:
             for logger in self.loggers:
                 logger.log_history("train/epsilon", self.epsilon, self.env_steps)
+
+        # Periodically update the target network:
+        if self.use_target_network and self.env_steps % self.target_update_interval == 0:
+            # Use Polyak averaging as specified:
+            polyak(self.online_softqs, self.target_softqs, self.polyak_tau)
 
     def exploration_policy(self, state: np.ndarray) -> int:
         if np.random.rand() < self.epsilon:
@@ -65,12 +93,8 @@ class DQN(BaseAgent):
             if isinstance(self.env.observation_space, gymnasium.spaces.Discrete):
                 states = states.squeeze()
                 next_states = next_states.squeeze()
-            
-            online_curr_q = self.online_qs(states).gather(1, actions)
 
-            online_curr_q = online_curr_q.squeeze(-1)
-
-            next_qs = self.online_qs(next_states)
+            next_qs = self.target_qs(next_states)
             
             next_v = torch.max(next_qs, dim=-1).values
             next_v = next_v.reshape(-1, 1)
@@ -97,11 +121,11 @@ if __name__ == '__main__':
     #logger = WandBLogger(entity='jacobhadamczyk', project='test')
     mlp = make_mlp(env.unwrapped.observation_space.shape[0], env.unwrapped.action_space.n, hidden_dims=[32, 32])#, activation=torch.nn.Mish)
     agent = DQN(env, 
-                       architecture=mlp, 
-                       loggers=(logger,),
-                       learning_rate=0.001,
-                       train_interval=1,
-                       gradient_steps=1,
-                       batch_size=256,
-                       )
+                architecture=mlp, 
+                loggers=(logger,),
+                learning_rate=0.001,
+                train_interval=1,
+                gradient_steps=1,
+                batch_size=256,
+                )
     agent.learn(total_timesteps=50000)
