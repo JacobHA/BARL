@@ -76,9 +76,9 @@ class SoftQAgent(BaseAgent):
         loss = 0.5*torch.nn.functional.mse_loss(curr_softq, expected_curr_softq)
         
         for logger in self.loggers:
-            logger.log_history("train/online_q_mean", curr_softq.mean().item())
+            logger.log_history("train/online_q_mean", curr_softq.mean().item(), self.env_steps)
             # log the loss:
-            logger.log_history("train/loss", loss.item())
+            logger.log_history("train/loss", loss.item(), self.env_steps)
 
         return loss
 
@@ -86,8 +86,9 @@ class SoftQAgent(BaseAgent):
 if __name__ == '__main__':
     import gymnasium as gym
     env = gym.make('CartPole-v1')
-    from Logger import WandBLogger
-    logger = WandBLogger(entity='jacobhadamczyk', project='test')
-    mlp = make_mlp(env.unwrapped.observation_space.shape[0], env.unwrapped.action_space.n, hidden_dims=[128, 128])
-    agent = SoftQAgent(env, architecture=mlp, loggers=(logger,), max_grad_norm=0.5)
+    from Logger import WandBLogger, TensorboardLogger
+    logger = TensorboardLogger('logs/cartpole')
+    #logger = WandBLogger(entity='jacobhadamczyk', project='test')
+    mlp = make_mlp(env.unwrapped.observation_space.shape[0], env.unwrapped.action_space.n, hidden_dims=[32, 32])
+    agent = SoftQAgent(env, architecture=mlp, loggers=(logger,), max_grad_norm=10)
     agent.learn(total_timesteps=50000)

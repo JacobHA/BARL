@@ -1,3 +1,4 @@
 wandb
 *.pyc
 .vscode
+__pycache__
