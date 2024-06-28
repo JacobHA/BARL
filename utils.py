@@ -2,9 +2,8 @@ import os
 import random
 
 import gymnasium as gym
-from matplotlib import pyplot as plt
 import numpy as np
-from stable_baselines3.common.logger import configure
+from stable_baselines3.common.utils import polyak_update
 import time
 
 import torch
@@ -22,36 +21,7 @@ def env_id_to_envs(env_id, render):
         env = gym.make(env_id)
         eval_env = gym.make(env_id, render_mode='human' if render else None)
         return env, eval_env
-
-
-def logger_at_folder(log_dir=None, algo_name=None):
-    # ensure no _ in algo_name:
-    if '_' in algo_name:
-        print("WARNING: '_' not allowed in algo_name (used for indexing). Replacing with '-'.")
-    algo_name = algo_name.replace('_', '-')
-    # Generate a logger object at the specified folder:
-    if log_dir is not None:
-        os.makedirs(log_dir, exist_ok=True)
-        files = os.listdir(log_dir)
-        # Get the number of existing "LogU" directories:
-        # another run may be creating a folder:
-        time.sleep(0.5)
-        num = len([int(f.split('_')[1]) for f in files if algo_name in f]) + 1
-        tmp_path = f"{log_dir}/{algo_name}_{num}"
-
-        # If the path exists already, increment the number:
-        while os.path.exists(tmp_path):
-            # another run may be creating a folder:
-            time.sleep(0.5)
-            num += 1
-            tmp_path = f"{log_dir}/{algo_name}_{num}"
-
-        logger = configure(tmp_path, ["stdout", "tensorboard"])
-    else:
-        # print the logs to stdout:
-        logger = configure(format_strings=["stdout"])
-
-    return logger
+    
 
 def log_class_vars(self, logger, params, use_wandb=False):
     for item in params:
@@ -126,3 +96,25 @@ def find_torch_modules(module, modules=None, prefix=None):
 
     return modules
 
+def polyak(target_nets, online_nets, tau):
+    """
+    Perform a Polyak (exponential moving average) update for target networks.
+
+    Args:
+        online_nets (list): A list of online networks whose parameters will be used for the update.
+        tau (float): The update rate, typically between 0 and 1.
+
+    Raises:
+        ValueError: If the number of online networks does not match the number of target networks.
+    """
+    if len(online_nets) != len(target_nets):
+        raise ValueError(f"Number of online networks does not match the number of target networks. \
+            Expected {len(online_nets)} target networks, got {len(target_nets)}.")
+
+    with torch.no_grad():
+        # zip does not raise an exception if length of parameters does not match.
+        for new_params, target_params in zip(online_nets.parameters(), target_nets.parameters()):
+            # for new_param, target_param in zip_strict(new_params, target_params):
+            #     target_param.data.mul_(tau).add_(new_param.data, alpha=1.0-tau)
+            #TODO: Remove dependency on stable_baselines3 by using in-place ops as above.
+            polyak_update(new_params, target_params, 1-tau)
