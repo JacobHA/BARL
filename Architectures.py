@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 
-def make_mlp(input_dim, output_dim, hidden_dims=(128, 128), activation=nn.ReLU, output_activation=None):
+def make_mlp(input_dim, output_dim, hidden_dims=(128, 128), activation=nn.ReLU, output_activation=None, device='cpu'):
     layers = []
     in_dim = input_dim
     for h_dim in hidden_dims:
@@ -11,7 +11,7 @@ def make_mlp(input_dim, output_dim, hidden_dims=(128, 128), activation=nn.ReLU, 
     layers.append(nn.Linear(in_dim, output_dim))
     if output_activation is not None:
         layers.append(output_activation())
-    return nn.Sequential(*layers)
+    return nn.Sequential(*layers).to(device)
 
 
 def make_cnn_sequential(input_dim, output_dim, hidden_dims=(32, 64), activation=nn.ReLU, output_activation=None):

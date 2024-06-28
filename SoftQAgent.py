@@ -2,8 +2,9 @@ import gymnasium
 import numpy as np
 import torch
 from Architectures import make_mlp
-from BaseAgent import BaseAgent, get_new_params
+from BaseAgent import BaseAgent, get_new_params, AUCCallback
 from utils import logger_at_folder
+
 
 class SoftQAgent(BaseAgent):
     def __init__(self,
@@ -24,7 +25,6 @@ class SoftQAgent(BaseAgent):
         self.log_hparams(self.kwargs)
         
         self.online_softqs = self.architecture
-            
         self.model = self.online_softqs
 
         # Make (all) softqs learnable:
@@ -32,7 +32,7 @@ class SoftQAgent(BaseAgent):
 
     def exploration_policy(self, state: np.ndarray) -> int:
         # return self.env.action_space.sample()
-        qvals = self.online_softqs(torch.tensor(state))
+        qvals = self.online_softqs(torch.tensor(state, device=self.device))
         # calculate boltzmann policy:
         qvals = qvals.squeeze()
         # sample from logits:
@@ -43,14 +43,16 @@ class SoftQAgent(BaseAgent):
 
     def evaluation_policy(self, state: np.ndarray) -> int:
         # Get the greedy action from the q values:
-        qvals = self.online_softqs(torch.tensor(state))
+        qvals = self.online_softqs(torch.tensor(state, device=self.device))
         qvals = qvals.squeeze()
         return torch.argmax(qvals).item()
     
 
     def calculate_loss(self, batch):
-        states, actions, next_states, dones, rewards = batch
-        curr_softq = self.online_softqs(states).squeeze().gather(1, actions.long())
+        states, actions, rewards, next_states, dones = batch
+        actions = actions.unsqueeze(1).long()
+        dones = dones.float()
+        curr_softq = self.online_softqs(states).squeeze().gather(1, actions)
         with torch.no_grad():
             if isinstance(self.env.observation_space, gymnasium.spaces.Discrete):
                 states = states.squeeze()
@@ -85,8 +87,9 @@ if __name__ == '__main__':
     env = gym.make('CartPole-v1')
     from Logger import WandBLogger, TensorboardLogger
     logger = TensorboardLogger('logs/cartpole')
+    device= 'c'
     #logger = WandBLogger(entity='jacobhadamczyk', project='test')
-    mlp = make_mlp(env.unwrapped.observation_space.shape[0], env.unwrapped.action_space.n, hidden_dims=[32, 32])
+    mlp = make_mlp(env.unwrapped.observation_space.shape[0], env.unwrapped.action_space.n, hidden_dims=[32, 32], device='cuda')
     agent = SoftQAgent(env, 
                        architecture=mlp, 
                        loggers=(logger,),
@@ -95,5 +98,7 @@ if __name__ == '__main__':
                        train_interval=1,
                        gradient_steps=1,
                        batch_size=256,
+                       eval_callbacks=[AUCCallback],
+                       device='cuda'
                        )
     agent.learn(total_timesteps=50000)
