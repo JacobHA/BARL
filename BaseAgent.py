@@ -1,3 +1,4 @@
+import os
 import time
 import numpy as np
 import torch
@@ -5,7 +6,7 @@ from stable_baselines3.common.buffers import ReplayBuffer
 import gymnasium as gym
 from typing import Optional, Union, Tuple, List
 from typeguard import typechecked
-from utils import log_class_vars, env_id_to_envs
+from utils import log_class_vars, env_id_to_envs, find_torch_modules
 from Logger import BaseLogger, StdLogger
 
 # use get_type_hints to throw errors if the user passes in an invalid type:
@@ -97,7 +98,6 @@ class BaseAgent:
         self.avg_eval_rwd = None
         self.fps = None
         self.train_this_step = False
-        
 
         self.buffer = ReplayBuffer(
             buffer_size=buffer_size,
@@ -134,7 +134,7 @@ class BaseAgent:
     def evaluation_policy(self, state: np.ndarray):
         raise NotImplementedError()
 
-    def gradient_descent(self, batch):
+    def calculate_loss(self, batch):
         raise NotImplementedError()
 
     def _train(self, gradient_steps: int, batch_size: int) -> None:
@@ -149,14 +149,13 @@ class BaseAgent:
             # Sample a batch from the replay buffer:
             batch = self.buffer.sample(batch_size)
 
-            loss = self.gradient_descent(batch)
+            loss = self.calculate_loss(batch)
             self.optimizer.zero_grad()
 
             # Clip gradient norm
             loss.backward()
             torch.nn.utils.clip_grad_norm_(self.model.parameters(), self.max_grad_norm)
             self.optimizer.step()
-
 
     def learn(self, total_timesteps: int):
         """
@@ -200,7 +199,6 @@ class BaseAgent:
                 for logger in self.loggers:
                     logger.log_history("rollout/ep_reward", self.rollout_reward, self.env_steps)
                     logger.log_history("rollout/avg_episode_length", avg_ep_len, self.env_steps)
-                
 
     def _on_step(self):
         """
@@ -211,7 +209,6 @@ class BaseAgent:
         if self.train_this_step:
             if self.env_steps > self.learning_starts:
                 self._train(self.gradient_steps, self.batch_size)
-            
 
     def _log_stats(self):
         # end timer:
