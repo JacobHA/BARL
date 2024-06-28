@@ -4,7 +4,7 @@ import numpy as np
 import torch
 from Architectures import make_mlp
 from BaseAgent import BaseAgent, get_new_params
-from utils import logger_at_folder, polyak
+from utils import polyak
 
 class DQN(BaseAgent):
     def __init__(self,
@@ -34,6 +34,9 @@ class DQN(BaseAgent):
        
         self.nA = self.env.action_space.n
         self.log_hparams(self.kwargs)
+        self.online_qs = self.architecture
+        self.model = self.online_qs
+
 
         if self.use_target_network:
             self.target_qs = self.architecture
@@ -44,6 +47,10 @@ class DQN(BaseAgent):
             else:
                 print("WARNING: No polyak tau specified for soft target updates. Using default tau=1 for hard updates.")
                 self.polyak_tau = 1.0
+
+            if target_update_interval is None:
+                print("WARNING: Target network update interval not specified. Using default interval of 1 step.")
+                self.target_update_interval = 1
         # Alias the "target" with online net if target is not used:
         else:
             self.target_qs = self.online_qs
@@ -51,15 +58,12 @@ class DQN(BaseAgent):
             if target_update_interval is not None:
                 print("WARNING: Target network update interval specified but target network is not used.")
 
-        self.online_qs = self.architecture
-            
-        self.model = self.online_qs
-
         # Make (all) qs learnable:
         self.optimizer = torch.optim.Adam(self.model.parameters(), lr=self.learning_rate)
 
     def _on_step(self) -> None:
         super()._on_step()
+
         # Update epsilon:
         self.epsilon = max(self.minimum_epsilon, (self.initial_epsilon - self.env_steps / self.total_timesteps / self.exploration_fraction))
 
@@ -70,7 +74,9 @@ class DQN(BaseAgent):
         # Periodically update the target network:
         if self.use_target_network and self.env_steps % self.target_update_interval == 0:
             # Use Polyak averaging as specified:
-            polyak(self.online_softqs, self.target_softqs, self.polyak_tau)
+            polyak(self.online_qs, self.target_qs, self.polyak_tau)
+
+
 
     def exploration_policy(self, state: np.ndarray) -> int:
         if np.random.rand() < self.epsilon:
@@ -127,5 +133,8 @@ if __name__ == '__main__':
                 train_interval=1,
                 gradient_steps=1,
                 batch_size=256,
+                use_target_network=True,
+                target_update_interval=10,
+                polyak_tau=1.0
                 )
     agent.learn(total_timesteps=50000)
