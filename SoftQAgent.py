@@ -95,10 +95,9 @@ class SoftQAgent(BaseAgent):
         # Calculate the softq ("critic") loss:
         loss = 0.5*torch.nn.functional.mse_loss(curr_softq, expected_curr_softq)
         
-        for logger in self.loggers:
-            logger.log_history("train/online_q_mean", curr_softq.mean().item(), self.env_steps)
-            # log the loss:
-            logger.log_history("train/loss", loss.item(), self.env_steps)
+        self.log_history("train/online_q_mean", curr_softq.mean().item(), self.env_steps)
+        # log the loss:
+        self.log_history("train/loss", loss.item(), self.env_steps)
 
         return loss
     

@@ -68,8 +68,7 @@ class DQN(BaseAgent):
         self.epsilon = max(self.minimum_epsilon, (self.initial_epsilon - self.env_steps / self.total_timesteps / self.exploration_fraction))
 
         if self.env_steps % self.log_interval == 0:
-            for logger in self.loggers:
-                logger.log_history("train/epsilon", self.epsilon, self.env_steps)
+            self.log_history("train/epsilon", self.epsilon, self.env_steps)
 
         # Periodically update the target network:
         if self.use_target_network and self.env_steps % self.target_update_interval == 0:
@@ -111,10 +110,9 @@ class DQN(BaseAgent):
         # Calculate the q ("critic") loss:
         loss = 0.5*torch.nn.functional.mse_loss(curr_q, expected_curr_q)
         
-        for logger in self.loggers:
-            logger.log_history("train/online_q_mean", curr_q.mean().item(), self.env_steps)
-            # log the loss:
-            logger.log_history("train/loss", loss.item(), self.env_steps)
+        self.log_history("train/online_q_mean", curr_q.mean().item(), self.env_steps)
+        # log the loss:
+        logger.log_history("train/loss", loss.item(), self.env_steps)
 
         return loss
 
