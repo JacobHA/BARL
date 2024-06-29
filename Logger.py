@@ -55,7 +55,7 @@ class StdLogger(BaseLogger):
         for param, value in hparam_dict.items():
             # self.log.info(param, value)
             self.log.info(f"{param}: {value}")
-    def log_history(self, param, value):
+    def log_history(self, param, value, step):
         self.log.info(f"{param}: {value}")
     @lru_cache(None)
     def log_video(self, *args, **kwargs):

@@ -65,13 +65,13 @@ class DQN(BaseAgent):
         super()._on_step()
 
         # Update epsilon:
-        self.epsilon = max(self.minimum_epsilon, (self.initial_epsilon - self.env_steps / self.total_timesteps / self.exploration_fraction))
+        self.epsilon = max(self.minimum_epsilon, (self.initial_epsilon - self.learn_env_steps / self.total_timesteps / self.exploration_fraction))
 
-        if self.env_steps % self.log_interval == 0:
-            self.log_history("train/epsilon", self.epsilon, self.env_steps)
+        if self.learn_env_steps % self.log_interval == 0:
+            self.log_history("train/epsilon", self.epsilon, self.learn_env_steps)
 
         # Periodically update the target network:
-        if self.use_target_network and self.env_steps % self.target_update_interval == 0:
+        if self.use_target_network and self.learn_env_steps % self.target_update_interval == 0:
             # Use Polyak averaging as specified:
             polyak(self.online_qs, self.target_qs, self.polyak_tau)
 
@@ -110,9 +110,9 @@ class DQN(BaseAgent):
         # Calculate the q ("critic") loss:
         loss = 0.5*torch.nn.functional.mse_loss(curr_q, expected_curr_q)
         
-        self.log_history("train/online_q_mean", curr_q.mean().item(), self.env_steps)
+        self.log_history("train/online_q_mean", curr_q.mean().item(), self.learn_env_steps)
         # log the loss:
-        logger.log_history("train/loss", loss.item(), self.env_steps)
+        logger.log_history("train/loss", loss.item(), self.learn_env_steps)
 
         return loss
 

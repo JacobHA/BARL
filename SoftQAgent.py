@@ -100,15 +100,15 @@ class SoftQAgent(BaseAgent):
         # Calculate the softq ("critic") loss:
         loss = 0.5*torch.nn.functional.mse_loss(curr_softq, expected_curr_softq)
         
-        self.log_history("train/online_q_mean", curr_softq.mean().item(), self.env_steps)
+        self.log_history("train/online_q_mean", curr_softq.mean().item(), self.learn_env_steps)
         # log the loss:
-        self.log_history("train/loss", loss.item(), self.env_steps)
+        self.log_history("train/loss", loss.item(), self.learn_env_steps)
 
         return loss
 
     def _on_step(self) -> None:
         # Periodically update the target network:
-        if self.use_target_network and self.env_steps % self.target_update_interval == 0:
+        if self.use_target_network and self.learn_env_steps % self.target_update_interval == 0:
             # Use Polyak averaging as specified:
             polyak(self.online_softqs, self.target_softqs, self.polyak_tau)
 
