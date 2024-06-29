@@ -30,6 +30,12 @@ class RewToGoDoneHandler(DoneHandler):
         buffer.ep_start = buffer.ep_end
 
 
+type_to_th_type = {
+    int: th.int64,
+    np.int64: th.int64,
+}
+
+
 class Buffer:
     """Buffer for storing potentially huge amount of images"""
     @typechecked
@@ -51,7 +57,9 @@ class Buffer:
         """
         assert isinstance(state, th.Tensor) or isinstance(state, np.ndarray)
         self.state_shape = state.shape
-        self.action_shape = (action,) if isinstance(action, int) else action.shape
+        self.state_dtype = th.from_numpy(state).dtype if isinstance(state, np.ndarray) else state.dtype
+        self.action_shape = (1,) if isinstance(action, int | np.int64)  else action.shape
+        self.action_dtype = th.from_numpy(state).dtype if isinstance(action, np.ndarray) else type_to_th_type[type(action)]
         self.buffer_size = buffer_size
         self.n_stored = 0
         self.device = device
@@ -66,8 +74,8 @@ class Buffer:
         self.done_handlers = done_handlers
 
     def clear(self):
-        self.states =  th.empty((self.buffer_size, *self.state_shape), device=self.device)
-        self.actions = th.empty((self.buffer_size, *self.action_shape), device=self.device)
+        self.states =  th.empty((self.buffer_size, *self.state_shape),  dtype=self.state_dtype, device=self.device)
+        self.actions = th.empty((self.buffer_size, *self.action_shape), dtype=self.action_dtype, device=self.device)
         self.rewards = th.empty((self.buffer_size, 1), device=self.device)
         self.dones =   th.empty((self.buffer_size, 1), dtype=bool, device=self.device)
         self.ep_start = 0
@@ -75,8 +83,8 @@ class Buffer:
         self.n_stored = 0
 
     def add(self, state, action, reward, done):
-        self.states[self.ep_end] =  th.tensor(state, device=self.device)
-        self.actions[self.ep_end] = th.tensor(action, device=self.device)
+        self.states[self.ep_end] =  th.tensor(state, device=self.device, dtype=self.state_dtype)
+        self.actions[self.ep_end] = th.tensor(action, device=self.device, dtype=self.action_dtype)
         self.rewards[self.ep_end] = th.tensor(reward, device=self.device)
         self.dones[self.ep_end] =   th.tensor(done, device=self.device)
         self.n_stored = min(self.buffer_size, self.n_stored + 1)
