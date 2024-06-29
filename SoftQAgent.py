@@ -17,9 +17,6 @@ class SoftQAgent(BaseAgent):
                  use_target_network: bool = False,
                  target_update_interval: Optional[int] = None,
                  polyak_tau: Optional[float] = None,
-                 use_target_network: bool = False,
-                 target_update_interval: Optional[int] = None,
-                 polyak_tau: Optional[float] = None,
                  **kwargs,
                  ):
         
