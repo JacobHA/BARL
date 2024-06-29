@@ -218,7 +218,6 @@ class BaseAgent:
                 self._train(self.gradient_steps, self.batch_size)
 
     def _log_stats(self, train_time, eval_time):
-
         # Get the current learning rate from the optimizer:
         for log_name, class_var in self.LOG_PARAMS.items():
             self.log_history(log_name, self.__dict__[class_var], self.learn_env_steps)
@@ -234,10 +233,10 @@ class BaseAgent:
             while not done:
                 action = self.evaluation_policy(state)
                 n_steps += 1
-
                 next_state, reward, terminated, truncated, info = self.eval_env.step(
                     action)
                 state = next_state
+                avg_reward += reward
                 done = terminated or truncated
                 for cb in self.eval_callbacks:
                     cb(state=state, action=action, reward=reward, done=done, end=False)
