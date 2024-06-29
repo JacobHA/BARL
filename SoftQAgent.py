@@ -5,7 +5,8 @@ import torch
 
 from Architectures import make_mlp
 from BaseAgent import BaseAgent, get_new_params, AUCCallback
-from utils import logger_at_folder, polyak
+from utils import polyak
+from Logger import WandBLogger, TensorboardLogger
 
 
 class SoftQAgent(BaseAgent):
@@ -117,7 +118,6 @@ class SoftQAgent(BaseAgent):
 if __name__ == '__main__':
     import gymnasium as gym
     env = gym.make('CartPole-v1')
-    from Logger import WandBLogger, TensorboardLogger
     logger = TensorboardLogger('logs/cartpole')
     device= 'cuda'
     #logger = WandBLogger(entity='jacobhadamczyk', project='test')
