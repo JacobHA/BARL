@@ -1,3 +1,4 @@
+from typing import Optional
 import gymnasium
 import numpy as np
 import torch
@@ -11,6 +12,8 @@ class SoftQAgent(BaseAgent):
                  *args,
                  gamma: float = 0.99,
                  beta: float = 5.0,
+                 use_target_network: bool = False,
+                 target_update_interval: Optional[int] = None,
                  **kwargs,
                  ):
         
@@ -20,11 +23,25 @@ class SoftQAgent(BaseAgent):
         self.algo_name = 'SQL'
         self.gamma = gamma
         self.beta = beta
-       
+        self.use_target_network = use_target_network
+        self.target_update_interval = target_update_interval
+
         self.nA = self.env.action_space.n
         self.log_hparams(self.kwargs)
         
         self.online_softqs = self.architecture
+        if self.use_target_network:
+            self.target_softqs = self.architecture
+            self.target_softqs.load_state_dict(self.online_softqs.state_dict())
+
+        # Alias the "target" with online net if target is not used:
+        else:
+            self.target_softqs = self.online_softqs
+            # Raise a warning if update interval is specified:
+            if target_update_interval is not None:
+                print("WARNING: Target network update interval specified but target network is not used.")
+
+
         self.model = self.online_softqs
 
         # Make (all) softqs learnable:
@@ -57,12 +74,8 @@ class SoftQAgent(BaseAgent):
             if isinstance(self.env.observation_space, gymnasium.spaces.Discrete):
                 states = states.squeeze()
                 next_states = next_states.squeeze()
-            
-            online_curr_softq = self.online_softqs(states).gather(1, actions)
 
-            online_curr_softq = online_curr_softq.squeeze(-1)
-
-            next_softqs = self.online_softqs(next_states)
+            next_softqs = self.target_softqs(next_states)
             
             next_v = 1/self.beta * (torch.logsumexp(
                 self.beta * next_softqs, dim=-1) - torch.log(torch.Tensor([self.nA])).to(self.device))
@@ -81,6 +94,12 @@ class SoftQAgent(BaseAgent):
 
         return loss
 
+    def _on_step(self) -> None:
+        # Periodically update the target network:
+        if self.use_target_network and self.env_steps % self.target_update_interval == 0:
+            self.target_softqs.load_state_dict(self.online_softqs.state_dict())
+        super()._on_step()
+
 
 if __name__ == '__main__':
     import gymnasium as gym
@@ -98,6 +117,8 @@ if __name__ == '__main__':
                        train_interval=1,
                        gradient_steps=1,
                        batch_size=256,
+                       use_target_network=True,
+                       target_update_interval=10,
                        eval_callbacks=[AUCCallback],
                        device='cuda'
                        )
