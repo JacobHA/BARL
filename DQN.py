@@ -34,9 +34,7 @@ class DQN(BaseAgent):
        
         self.nA = self.env.action_space.n
         self.log_hparams(self.kwargs)
-
         self.online_qs = self.architecture
-
         self.model = self.online_qs
 
 
