@@ -161,6 +161,7 @@ class BaseAgent:
         """
         Train the agent for total_timesteps
         """
+        self.total_timesteps = total_timesteps
         # Start a timer to log fps:
         self.initial_time = time.thread_time_ns()
 
@@ -196,11 +197,10 @@ class BaseAgent:
                     self._log_stats()
 
             if done:
-                for logger in self.loggers:
-                    logger.log_history("rollout/ep_reward", self.rollout_reward, self.env_steps)
-                    logger.log_history("rollout/avg_episode_length", avg_ep_len, self.env_steps)
+                self.log_history("rollout/ep_reward", self.rollout_reward, self.env_steps)
+                self.log_history("rollout/avg_episode_length", avg_ep_len, self.env_steps)
 
-    def _on_step(self):
+    def _on_step(self) -> None:
         """
         This method is called after every step in the environment
         """
@@ -224,8 +224,7 @@ class BaseAgent:
         # Get the current learning rate from the optimizer:
         # log_class_vars(self, self.logger, LOG_PARAMS)
         for log_name, class_var in self.LOG_PARAMS.items():
-            for logger in self.loggers:
-                logger.log_history(log_name, self.__dict__[class_var], self.env_steps)
+            self.log_history(log_name, self.__dict__[class_var], self.env_steps)
 
                 # logger.dump(step=self.env_steps)
 
@@ -256,10 +255,9 @@ class BaseAgent:
         self.eval_time = eval_time
         self.eval_fps = eval_fps
         self.avg_eval_rwd = avg_reward
-        for logger in self.loggers:
-            logger.log_history('eval/avg_episode_length', n_steps / n_episodes, self.env_steps)
-            logger.log_history('eval/time', eval_time, self.env_steps)
-            logger.log_history('eval/fps', eval_fps, self.env_steps)
+        self.log_history('eval/avg_episode_length', n_steps / n_episodes, self.env_steps)
+        self.log_history('eval/time', eval_time, self.env_steps)
+        self.log_history('eval/fps', eval_fps, self.env_steps)
         return avg_reward
 
     def save(self, path=None):
