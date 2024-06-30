@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 from utils import auto_device
 
-def make_mlp(input_dim, output_dim, hidden_dims=(128, 128), activation=nn.ReLU, output_activation=None, device='cpu'):
+def make_mlp(input_dim, output_dim, hidden_dims=(128, 128), activation=nn.ReLU, output_activation=None, device='auto'):
     device = auto_device(device)
     layers = []
     in_dim = input_dim
