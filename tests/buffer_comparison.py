@@ -27,7 +27,7 @@ class SB3_Buff_Adapter:
     def __len__(self):
         return len(self.buffer)
 
-device= 'cuda'
+device= 'auto'
 #logger = WandBLogger(entity='jacobhadamczyk', project='test')
 mlp = make_mlp(env.unwrapped.observation_space.shape[0], env.unwrapped.action_space.n, hidden_dims=[32, 32], device=device)
 agent = SoftQAgent(

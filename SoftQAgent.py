@@ -119,12 +119,8 @@ if __name__ == '__main__':
     import gymnasium as gym
     env = gym.make('CartPole-v1')
     logger = TensorboardLogger('logs/cartpole')
-    device= 'auto'
-    if device == 'auto':
-        device = 'cuda' if torch.cuda.is_available() else 'cpu'
-
     #logger = WandBLogger(entity='jacobhadamczyk', project='test')
-    mlp = make_mlp(env.unwrapped.observation_space.shape[0], env.unwrapped.action_space.n, hidden_dims=[32, 32], device=device)
+    mlp = make_mlp(env.unwrapped.observation_space.shape[0], env.unwrapped.action_space.n, hidden_dims=[32, 32])
     agent = SoftQAgent(env,
                        architecture=mlp, 
                        loggers=(logger,),

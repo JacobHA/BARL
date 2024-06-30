@@ -6,7 +6,7 @@ from stable_baselines3.common.buffers import ReplayBuffer
 import gymnasium as gym
 from typing import Optional, Union, Tuple, List
 from typeguard import typechecked
-from utils import log_class_vars, env_id_to_envs, find_torch_modules
+from utils import auto_device, env_id_to_envs, find_torch_modules
 from Logger import BaseLogger, StdLogger
 
 from Buffer import Buffer
@@ -35,7 +35,6 @@ class AUCCallback(EvalCallback):
             self.agent.log_history('eval/auc', self.auc, self.agent.learn_env_steps)
             return
         self.auc += reward
-
 
 class BaseAgent:
     @typechecked
@@ -88,10 +87,7 @@ class BaseAgent:
         self.loggers = loggers
 
         self.gradient_steps = gradient_steps
-        if device == "auto":
-            self.device = "cuda" if torch.cuda.is_available() else "cpu"
-        else:
-            self.device = device
+        self.device = auto_device(device)
 
         #TODO: Implement save_checkpoints
         self.save_checkpoints = save_checkpoints
@@ -112,7 +108,7 @@ class BaseAgent:
             buffer_size=buffer_size,
             state=self.env.observation_space.sample(),
             action=self.env.action_space.sample(),
-            device=self.device
+            device=device
         )
 
         self.eval_auc = 0
