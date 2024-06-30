@@ -80,7 +80,7 @@ class SoftQAgent(BaseAgent):
 
     def calculate_loss(self, batch):
         states, actions, rewards, next_states, dones = batch
-        actions = actions.long()
+        actions = actions.unsqueeze(0).long()
         dones = dones.float()
         curr_softq = self.online_softqs(states).squeeze().gather(1, actions)
         with torch.no_grad():
@@ -92,7 +92,7 @@ class SoftQAgent(BaseAgent):
             
             next_v = 1/self.beta * (torch.logsumexp(
                 self.beta * next_softqs, dim=-1) - torch.log(torch.Tensor([self.nA])).to(self.device))
-            next_v = next_v.reshape(-1, 1)
+            next_v = next_v.unsqueeze(0)
 
             # Backup equation:
             expected_curr_softq = rewards + self.gamma * next_v * (1-dones)
@@ -133,6 +133,5 @@ if __name__ == '__main__':
                        target_update_interval=10,
                        polyak_tau=1.0,
                        eval_callbacks=[AUCCallback],
-                       device=device
                        )
     agent.learn(total_timesteps=50000)

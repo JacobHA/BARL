@@ -187,10 +187,10 @@ class BaseAgent:
                      self.train_interval == 0)
 
                 # Add the transition to the replay buffer:
-                action = np.array([action])
-                state = np.array([state])
-                next_state = np.array([next_state])
-                self.buffer.add(state, action, reward, terminated)
+                # action = np.array([action])
+                # state = np.array([state])
+                # next_state = np.array([next_state])
+                self.buffer.add(state, action, reward, next_state, terminated)
                 state = next_state
                 if self.learn_env_steps % self.log_interval == 0:
                     train_time = (time.thread_time_ns() - init_train_time) / 1e9
