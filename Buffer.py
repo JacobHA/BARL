@@ -44,8 +44,8 @@ class Buffer:
             buffer_size: int = 20000,
             state:Union[th.Tensor,np.ndarray]=None,
             action:Union[th.Tensor,np.ndarray,int,np.int64]=None,
-            done_handlers:Optional[Tuple[DoneHandler]]=(),
-            device:Optional[th.device]=None,
+            done_handlers:Tuple[DoneHandler, ...] = (),
+            device:str='cpu',
     ):
         """
         n_samples: int - number of samples to store

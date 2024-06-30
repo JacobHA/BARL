@@ -112,7 +112,7 @@ class BaseAgent:
             buffer_size=buffer_size,
             state=self.env.observation_space.sample(),
             action=self.env.action_space.sample(),
-            device=device
+            device=self.device
         )
 
         self.eval_auc = 0

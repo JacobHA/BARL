@@ -80,7 +80,7 @@ class SoftQAgent(BaseAgent):
 
     def calculate_loss(self, batch):
         states, actions, rewards, next_states, dones = batch
-        # actions =
+        actions = actions.unsqueeze(1).long()
         dones = dones.float()
         curr_softq = self.online_softqs(states).squeeze().gather(1, actions)
         with torch.no_grad():
@@ -119,22 +119,24 @@ if __name__ == '__main__':
     import gymnasium as gym
     env = gym.make('CartPole-v1')
     logger = TensorboardLogger('logs/cartpole')
-    device= 'cuda'
+    device= 'auto'
+    if device == 'auto':
+        device = 'cuda' if torch.cuda.is_available() else 'cpu'
+
     #logger = WandBLogger(entity='jacobhadamczyk', project='test')
     mlp = make_mlp(env.unwrapped.observation_space.shape[0], env.unwrapped.action_space.n, hidden_dims=[32, 32], device=device)
-    agent = SoftQAgent(
-        env,
-        architecture=mlp,
-        loggers=(logger,),
-        learning_rate=0.001,
-        beta=0.5,
-        train_interval=1,
-        gradient_steps=1,
-        batch_size=256,
-        use_target_network=True,
-        target_update_interval=10,
-        polyak_tau=1.0,
-        eval_callbacks=[AUCCallback],
-        device='cuda'
-    )
+    agent = SoftQAgent(env,
+                       architecture=mlp, 
+                       loggers=(logger,),
+                       learning_rate=0.001,
+                       beta=0.5,
+                       train_interval=1,
+                       gradient_steps=1,
+                       batch_size=256,
+                       use_target_network=True,
+                       target_update_interval=10,
+                       polyak_tau=1.0,
+                       eval_callbacks=[AUCCallback],
+                       device=device
+                       )
     agent.learn(total_timesteps=50000)
