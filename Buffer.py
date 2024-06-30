@@ -103,7 +103,6 @@ class Buffer:
         if done:
             self._handle_done()
 
-    # todo: eager shuffle and load
     def sample(self, batch_size, preloading=False):
         if not preloading and self.preloaded_sample is not None:
             # print('Preloaded sample')
