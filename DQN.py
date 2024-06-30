@@ -37,7 +37,6 @@ class DQN(BaseAgent):
         self.online_qs = self.architecture
         self.model = self.online_qs
 
-
         if self.use_target_network:
             self.target_qs = self.architecture
             self.target_qs.load_state_dict(self.online_qs.state_dict())
@@ -65,7 +64,7 @@ class DQN(BaseAgent):
         super()._on_step()
 
         # Update epsilon:
-        self.epsilon = max(self.minimum_epsilon, (self.initial_epsilon - self.learn_env_steps / self.total_timesteps / self.exploration_fraction))
+        self.epsilon = max(self.minimum_epsilon, (self.initial_epsilon - self.learn_env_steps / self.learn_env_steps / self.exploration_fraction))
 
         if self.learn_env_steps % self.log_interval == 0:
             self.log_history("train/epsilon", self.epsilon, self.learn_env_steps)
@@ -74,7 +73,6 @@ class DQN(BaseAgent):
         if self.use_target_network and self.learn_env_steps % self.target_update_interval == 0:
             # Use Polyak averaging as specified:
             polyak(self.online_qs, self.target_qs, self.polyak_tau)
-
 
 
     def exploration_policy(self, state: np.ndarray) -> int:
@@ -86,13 +84,15 @@ class DQN(BaseAgent):
 
     def evaluation_policy(self, state: np.ndarray) -> int:
         # Get the greedy action from the q values:
-        qvals = self.online_qs(torch.tensor(state))
+        qvals = self.online_qs(torch.tensor(state, device=self.device))
         qvals = qvals.squeeze()
         return torch.argmax(qvals).item()
     
 
     def calculate_loss(self, batch):
-        states, actions, next_states, dones, rewards = batch
+        states, actions, rewards, next_states, dones = batch
+        actions = actions.unsqueeze(1).long()
+        dones = dones.float()
         curr_q = self.online_qs(states).squeeze().gather(1, actions.long())
         with torch.no_grad():
             if isinstance(self.env.observation_space, gymnasium.spaces.Discrete):
