@@ -62,7 +62,7 @@ class SoftQAgent(BaseAgent):
 
     def exploration_policy(self, state: np.ndarray) -> int:
         # return self.env.action_space.sample()
-        qvals = self.online_softqs(torch.tensor(state, device=self.device))
+        qvals = self.online_softqs(torch.from_numpy(state).to(device=self.device))
         # calculate boltzmann policy:
         qvals = qvals.squeeze()
         # sample from logits:
@@ -73,14 +73,14 @@ class SoftQAgent(BaseAgent):
 
     def evaluation_policy(self, state: np.ndarray) -> int:
         # Get the greedy action from the q values:
-        qvals = self.online_softqs(torch.tensor(state, device=self.device))
+        qvals = self.online_softqs(torch.from_numpy(state)).to(device=self.device)
         qvals = qvals.squeeze()
         return torch.argmax(qvals).item()
     
 
     def calculate_loss(self, batch):
         states, actions, rewards, next_states, dones = batch
-        actions = actions.unsqueeze(1).long()
+        actions = actions.long()
         dones = dones.float()
         curr_softq = self.online_softqs(states).squeeze().gather(1, actions)
         with torch.no_grad():

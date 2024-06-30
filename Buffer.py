@@ -58,7 +58,7 @@ class Buffer:
         assert isinstance(state, th.Tensor) or isinstance(state, np.ndarray)
         self.state_shape = state.shape
         self.state_dtype = state.dtype if isinstance(state, np.ndarray) else state.dtype
-        self.action_shape = (1,) if isinstance(action, int | np.int64)  else action.shape
+        self.action_shape = (1,) if isinstance(action, (int, np.integer))  else action.shape
         self.action_dtype = action.dtype if isinstance(action, np.ndarray) else type(action)
         self.buffer_size = buffer_size
         self.n_stored = 0

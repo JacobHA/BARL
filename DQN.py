@@ -84,14 +84,14 @@ class DQN(BaseAgent):
 
     def evaluation_policy(self, state: np.ndarray) -> int:
         # Get the greedy action from the q values:
-        qvals = self.online_qs(torch.tensor(state, device=self.device))
+        qvals = self.online_qs(torch.from_numpy(state).to(device=self.device))
         qvals = qvals.squeeze()
         return torch.argmax(qvals).item()
     
 
     def calculate_loss(self, batch):
         states, actions, rewards, next_states, dones = batch
-        actions = actions.unsqueeze(1).long()
+        actions = actions.long()
         dones = dones.float()
         curr_q = self.online_qs(states).squeeze().gather(1, actions.long())
         with torch.no_grad():
