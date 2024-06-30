@@ -73,7 +73,8 @@ class SoftQAgent(BaseAgent):
 
     def evaluation_policy(self, state: np.ndarray) -> int:
         # Get the greedy action from the q values:
-        qvals = self.online_softqs(torch.from_numpy(state)).to(device=self.device)
+        state = torch.from_numpy(state).to(device=self.device)
+        qvals = self.online_softqs(state).to(device=self.device)
         qvals = qvals.squeeze()
         return torch.argmax(qvals).item()
     

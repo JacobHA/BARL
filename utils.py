@@ -95,6 +95,7 @@ def find_torch_modules(module, modules=None, prefix=None):
     return modules
 
 def polyak(target_nets, online_nets, tau):
+    tau = 1 - tau
     """
     Perform a Polyak (exponential moving average) update for target networks.
 
