@@ -1,9 +1,6 @@
-import json
-import os
-from typing import Optional, Union, Tuple, List, Callable, Any
-from pathlib import Path
+from typing import Optional, Union, Tuple
+import threading
 
-import h5py
 import numpy as np
 import torch as th
 from typeguard import typechecked
@@ -34,6 +31,9 @@ type_to_th_type = {
     int: th.int64,
     np.int64: th.int64,
 }
+type_to_np_type = {
+    int: np.int64,
+}
 
 
 class Buffer:
@@ -57,9 +57,9 @@ class Buffer:
         """
         assert isinstance(state, th.Tensor) or isinstance(state, np.ndarray)
         self.state_shape = state.shape
-        self.state_dtype = th.from_numpy(state).dtype if isinstance(state, np.ndarray) else state.dtype
+        self.state_dtype = state.dtype if isinstance(state, np.ndarray) else state.dtype
         self.action_shape = (1,) if isinstance(action, int | np.int64)  else action.shape
-        self.action_dtype = th.from_numpy(state).dtype if isinstance(action, np.ndarray) else type_to_th_type[type(action)]
+        self.action_dtype = action.dtype if isinstance(action, np.ndarray) else type(action)
         self.buffer_size = buffer_size
         self.n_stored = 0
         self.device = device
@@ -72,21 +72,30 @@ class Buffer:
         self.transforms = {}
         self.clear()
         self.done_handlers = done_handlers
+        self.preload_sample = True
+        self.preloaded_sample = None
+
+    def _preload(self, batch_size):
+        self.preloaded_sample = self.sample(batch_size, preloading=True)
+
+    def preload(self, batch_size):
+        worker = threading.Thread(target=self._preload, args=(batch_size,))
+        worker.start()
 
     def clear(self):
-        self.states =  th.empty((self.buffer_size, *self.state_shape),  dtype=self.state_dtype, device=self.device)
-        self.actions = th.empty((self.buffer_size, *self.action_shape), dtype=self.action_dtype, device=self.device)
-        self.rewards = th.empty((self.buffer_size, 1), device=self.device)
-        self.dones =   th.empty((self.buffer_size, 1), dtype=bool, device=self.device)
+        self.states =  np.empty((self.buffer_size, *self.state_shape),  dtype=self.state_dtype)
+        self.actions = np.empty((self.buffer_size, *self.action_shape), dtype=self.action_dtype)
+        self.rewards = np.empty((self.buffer_size, 1), dtype=np.float32)
+        self.dones =   np.empty((self.buffer_size, 1), dtype=bool)
         self.ep_start = 0
         self.ep_end = 0
         self.n_stored = 0
 
     def add(self, state, action, reward, done):
-        self.states[self.ep_end] =  th.tensor(state, device=self.device, dtype=self.state_dtype)
-        self.actions[self.ep_end] = th.tensor(action, device=self.device, dtype=self.action_dtype)
-        self.rewards[self.ep_end] = th.tensor(reward, device=self.device)
-        self.dones[self.ep_end] =   th.tensor(done, device=self.device)
+        self.states [self.ep_end] = state
+        self.actions[self.ep_end] = action
+        self.rewards[self.ep_end] = reward
+        self.dones  [self.ep_end] = done
         self.n_stored = min(self.buffer_size, self.n_stored + 1)
         self.ep_end += 1
         if self.ep_end == self.buffer_size:
@@ -95,11 +104,22 @@ class Buffer:
             self._handle_done()
 
     # todo: eager shuffle and load
-    def sample(self, batch_size):
-        idx = th.randint(high=self.n_stored, size=(batch_size,), device=self.device)
+    def sample(self, batch_size, preloading=False):
+        if not preloading and self.preloaded_sample is not None:
+            # print('Preloaded sample')
+            return self.preloaded_sample
+        if self.preload_sample and not preloading:
+            print('preloading not ready, preparing for the next time')
+            self.preloaded_sample = None
+            self._preload(batch_size)
+        idx = np.random.randint(low=0,high=self.n_stored, size=(batch_size,))
         # todo: valid next state indexing
         # todo: td sampling
-        return  self.states[idx], self.actions[idx], self.rewards[idx], self.states[idx + 1], self.dones[idx],
+        return (th.from_numpy(self.states [idx],    ).to(self.device),
+                th.from_numpy(self.actions[idx],    ).to(self.device),
+                th.from_numpy(self.rewards[idx],    ).to(self.device),
+                th.from_numpy(self.states [idx + 1],).to(self.device),
+                th.from_numpy(self.dones  [idx],    ).to(self.device))
 
     def _handle_done(self):
         for handler, h_kwargs in self.done_handlers:

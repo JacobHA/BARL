@@ -43,8 +43,8 @@ agent = SoftQAgent(
     target_update_interval=10,
     polyak_tau=1.0,
     eval_callbacks=[AUCCallback],
-    device='cuda',
-    learning_starts=512
+    device=device,
+    learning_starts=0
 )
 sb3_buff_agent = SoftQAgent(
     env,
@@ -59,8 +59,8 @@ sb3_buff_agent = SoftQAgent(
     target_update_interval=10,
     polyak_tau=1.0,
     eval_callbacks=[AUCCallback],
-    device='cuda',
-    learning_starts=512
+    device=device,
+    learning_starts=0
 )
 sb3_buff_agent.buffer = SB3_Buff_Adapter(ReplayBuffer(
     sb3_buff_agent.buffer.buffer_size,
