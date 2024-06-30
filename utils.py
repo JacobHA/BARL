@@ -1,5 +1,5 @@
-import os
 import random
+from typing import Union
 
 import gymnasium as gym
 import numpy as np
@@ -118,3 +118,10 @@ def polyak(target_nets, online_nets, tau):
             #     target_param.data.mul_(tau).add_(new_param.data, alpha=1.0-tau)
             #TODO: Remove dependency on stable_baselines3 by using in-place ops as above.
             polyak_update(new_params, target_params, 1-tau)
+
+
+def auto_device(device: Union[torch.device, str] = 'auto'):
+    if device == 'auto':
+        return 'cuda' if torch.cuda.is_available() else 'cpu'
+    else:
+        return device

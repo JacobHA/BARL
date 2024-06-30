@@ -5,6 +5,8 @@ import numpy as np
 import torch as th
 from typeguard import typechecked
 
+from utils import auto_device
+
 
 class DoneHandler:
     @typechecked
@@ -45,7 +47,7 @@ class Buffer:
             state:Union[th.Tensor,np.ndarray]=None,
             action:Union[th.Tensor,np.ndarray,int,np.int64]=None,
             done_handlers:Tuple[DoneHandler, ...] = (),
-            device:str='cpu',
+            device:str='auto',
     ):
         """
         n_samples: int - number of samples to store
@@ -62,7 +64,7 @@ class Buffer:
         self.action_dtype = action.dtype if isinstance(action, np.ndarray) else type(action)
         self.buffer_size = buffer_size
         self.n_stored = 0
-        self.device = device
+        self.device = auto_device(device)
         self.states = None
         self.actions = None
         self.dones = None
