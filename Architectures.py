@@ -34,18 +34,20 @@ def make_cnn_sequential(input_dim, output_dim, hidden_dims=(32, 64), activation=
 
 def preprocess_obs(obs, device):
     if isinstance(obs, np.ndarray):
-        obs = torch.from_numpy(obs).to(device=device)
+        obs = torch.from_numpy(obs)
+
     if obs.dtype == torch.uint8:
         if len(obs.shape) == 3:
-            obs = obs.unsqueeze(0)
+            obs = obs.unsqueeze(0).to(device=device)
             # Normalize pixel values to the range [0, 1]
         return obs.float() / 255.0
     if len(obs.shape) == 4:
-        obs = obs.permute(0, 3, 1, 2)  # Change to (N, C, H, W) format
+        # Change to (N, C, H, W) format
+        obs = obs.permute(0, 3, 1, 2).to(device)  
 
         # Normalize pixel values to the range [0, 1]
         return obs.float() / 255.0
-    return obs
+    return obs.to(device=device)
 
 class AtariNatureCNN(nn.Module):
     def __init__(self, output_dim, input_dim=(84, 84, 4), device='auto', activation=nn.ReLU, hidden_dim=512):
@@ -61,12 +63,12 @@ class AtariNatureCNN(nn.Module):
             nn.Conv2d(64, 64, kernel_size=3, stride=1, device=self.device),
             activation(),
             nn.Flatten(start_dim=1)
-        )
+        ).to(self.device)
 
         # Calculate resulting shape for FC layers:
         with torch.no_grad():
             rand_inp = torch.rand(1, *input_dim)
-            rand_inp = preprocess_obs(rand_inp, device=device)  # Preprocess the random input
+            rand_inp = preprocess_obs(rand_inp, device=self.device)  # Preprocess the random input
             flat_size = self.conv_layers(rand_inp).shape[1]
 
         print(f"Using a CNN with {flat_size}-dim. flattened output.")

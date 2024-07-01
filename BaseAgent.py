@@ -164,6 +164,7 @@ class BaseAgent:
         # Start a timer to log fps:
         init_train_time = time.thread_time_ns()
         self.learn_env_steps = 0
+        self.total_timesteps = total_timesteps
 
         while self.learn_env_steps < total_timesteps:
             state, _ = self.env.reset()

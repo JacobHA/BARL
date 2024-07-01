@@ -64,7 +64,7 @@ class DQN(BaseAgent):
         super()._on_step()
 
         # Update epsilon:
-        self.epsilon = max(self.minimum_epsilon, (self.initial_epsilon - self.learn_env_steps / self.learn_env_steps / self.exploration_fraction))
+        self.epsilon = max(self.minimum_epsilon, (self.initial_epsilon - self.learn_env_steps / self.total_timesteps / self.exploration_fraction))
 
         if self.learn_env_steps % self.log_interval == 0:
             self.log_history("train/epsilon", self.epsilon, self.learn_env_steps)
@@ -129,12 +129,14 @@ if __name__ == '__main__':
     agent = DQN(env, 
                 architecture=cnn,
                 loggers=(logger,),
-                learning_rate=0.001,
-                train_interval=1,
+                learning_rate=0.0001,
+                train_interval=4,
                 gradient_steps=1,
-                batch_size=256,
+                batch_size=16,
                 use_target_network=True,
-                target_update_interval=10,
-                polyak_tau=1.0
+                target_update_interval=10000,
+                polyak_tau=1.0,
+                learning_starts=50000,
+                log_interval=10_000,
                 )
-    agent.learn(total_timesteps=50000)
+    agent.learn(total_timesteps=1_000_000)
