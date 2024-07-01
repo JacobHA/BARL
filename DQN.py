@@ -133,7 +133,7 @@ if __name__ == '__main__':
                 architecture=make_mlp,
                 architecture_kwargs={'input_dim': gym.make(env).observation_space.shape[0],
                                      'output_dim': gym.make(env).action_space.n,
-                                     'hidden_dims': [32, 32]},
+                                     'hidden_dims': [64, 64]},
                 loggers=(logger,),
                 learning_rate=0.001,
                 train_interval=1,
@@ -142,7 +142,7 @@ if __name__ == '__main__':
                 use_target_network=True,
                 target_update_interval=10,
                 polyak_tau=1.0,
-                learning_starts=10,
+                learning_starts=1000,
                 log_interval=500,
 
                 )
