@@ -40,7 +40,7 @@ class BaseAgent:
     @typechecked
     def __init__(self,
                  env_id: Union[str, gym.Env],
-                 architecture: Union[str, torch.nn.Module] = "mlp",
+                 architecture: Union[str, torch.nn.Module, callable] = "mlp",
                  learning_rate: float = 3e-4,
                  batch_size: int = 64,
                  buffer_size: int = 100_000,
