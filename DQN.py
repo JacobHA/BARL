@@ -16,6 +16,7 @@ class DQN(BaseAgent):
                  use_target_network: bool = False,
                  target_update_interval: Optional[int] = None,
                  polyak_tau: Optional[float] = None,
+                 architecture_kwargs: dict = {},
                  **kwargs,
                  ):
         
@@ -34,12 +35,12 @@ class DQN(BaseAgent):
        
         self.nA = self.env.action_space.n
         self.log_hparams(self.kwargs)
-        self.online_qs = self.architecture(self.env.action_space.n)
+        self.online_qs = self.architecture(**architecture_kwargs)
         self.model = self.online_qs
 
         if self.use_target_network:
             # Make another instance of the architecture for the target network:
-            self.target_qs = self.architecture(self.env.action_space.n)
+            self.target_qs = self.architecture(**architecture_kwargs)
             self.target_qs.load_state_dict(self.online_qs.state_dict())
             if polyak_tau is not None:
                 assert 0 <= polyak_tau <= 1, "Polyak tau must be in the range [0, 1]."
@@ -127,17 +128,22 @@ if __name__ == '__main__':
     #logger = WandBLogger(entity='jacobhadamczyk', project='test')
     # mlp = make_mlp(env.unwrapped.observation_space.shape[0], env.unwrapped.action_space.n, hidden_dims=[32, 32])#, activation=torch.nn.Mish)
     # cnn = make_atari_nature_cnn(gym.make(env).action_space.n)
+    env = 'CartPole-v1'
     agent = DQN(env, 
-                architecture=make_atari_nature_cnn,
+                architecture=make_mlp,
+                architecture_kwargs={'input_dim': gym.make(env).observation_space.shape[0],
+                                     'output_dim': gym.make(env).action_space.n,
+                                     'hidden_dims': [32, 32]},
                 loggers=(logger,),
-                learning_rate=0.0001,
-                train_interval=4,
-                gradient_steps=4,
-                batch_size=16,
+                learning_rate=0.001,
+                train_interval=1,
+                gradient_steps=1,
+                batch_size=64,
                 use_target_network=True,
-                target_update_interval=10000,
+                target_update_interval=10,
                 polyak_tau=1.0,
-                learning_starts=50000,
-                log_interval=10_000,
+                learning_starts=10,
+                log_interval=500,
+
                 )
-    agent.learn(total_timesteps=1_000_000)
+    agent.learn(total_timesteps=60_000)

@@ -3,18 +3,51 @@ import torch
 import torch.nn as nn
 from utils import auto_device
 
-def make_mlp(input_dim, output_dim, hidden_dims=(128, 128), activation=nn.ReLU, output_activation=None, device='auto'):
-    device = auto_device(device)
-    layers = []
-    in_dim = input_dim
-    for h_dim in hidden_dims:
-        layers.append(nn.Linear(in_dim, h_dim))
-        layers.append(activation())
-        in_dim = h_dim
-    layers.append(nn.Linear(in_dim, output_dim))
-    if output_activation is not None:
-        layers.append(output_activation())
-    return nn.Sequential(*layers).to(device)
+class MLP(nn.Module):
+    def __init__(self, 
+                 input_dim, 
+                 output_dim, 
+                 *args, 
+                 activation=nn.ReLU,
+                 hidden_dims=(64, 64), 
+                 output_activation=None,
+                 device='auto', 
+                 **kwargs) -> None:
+        super(MLP, self).__init__()
+        self.device = auto_device(device)
+        self.input_dim = input_dim
+        self.output_dim = output_dim
+        self.hidden_dims = hidden_dims
+        self.activation = activation
+        self.output_activation = output_activation
+
+        self.fc_layers = []
+        in_dim = input_dim
+        for h_dim in hidden_dims:
+            self.fc_layers.append(nn.Linear(in_dim, h_dim).to(self.device))
+            self.fc_layers.append(activation())
+            in_dim = h_dim
+        self.fc_layers.append(nn.Linear(in_dim, output_dim).to(self.device))
+        if output_activation is not None:
+            self.fc_layers.append(output_activation())
+
+        self.fc_layers = nn.Sequential(*self.fc_layers).to(self.device)
+        
+
+    def forward(self, x):
+        x = preprocess_obs(x, device=self.device)  # Apply preprocessing
+        x = self.fc_layers(x)
+        return x
+
+    
+
+def make_mlp(input_dim=None, output_dim=None, hidden_dims=(128, 128), activation=nn.ReLU, output_activation=None, device='auto'):
+    return MLP(input_dim, 
+               output_dim, 
+               hidden_dims=hidden_dims, 
+               activation=activation, 
+               output_activation=output_activation, 
+               device=device)
 
 
 def make_cnn_sequential(input_dim, output_dim, hidden_dims=(32, 64), activation=nn.ReLU, output_activation=None):

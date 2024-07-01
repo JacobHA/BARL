@@ -69,7 +69,13 @@ class BaseAgent:
         self.learn_env_steps = 0
         self.tot_env_steps = 0
         self.kwargs = get_new_params(None, locals())
-        self.env, self.eval_env = env_id_to_envs(env_id, render, is_atari=True, permute_dims=True)
+        is_atari = False
+        permute_dims = False
+        if isinstance(env_id, str):
+            if 'ALE' in env_id or 'NoFrameskip' in env_id:
+                is_atari=True
+                permute_dims=True
+        self.env, self.eval_env = env_id_to_envs(env_id, render, is_atari=is_atari, permute_dims=permute_dims)
 
         if hasattr(self.env.unwrapped.spec, 'id'):
             self.env_str = self.env.unwrapped.spec.id
