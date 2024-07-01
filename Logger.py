@@ -44,7 +44,6 @@ class StdLogger(BaseLogger):
         if logger is not None:
             self.log = logger
         else:
-            
             self.log = logging.getLogger("Barl")
             self.log.setLevel(logging.INFO)
             st = logging.StreamHandler()
@@ -76,9 +75,9 @@ class TensorboardLogger(BaseLogger):
         self.writer = SummaryWriter(log_dir)
     def log_hparams(self, hparam_dict):
         for param, value in hparam_dict.items():
-            self.writer.add_text(param, str(value))
+            self.writer.add_text(param, str(value), global_step=0)
     def log_history(self, param, value, step):
-        self.writer.add_scalar(param, value, step)
+        self.writer.add_scalar(param, value, global_step=step)
     def log_video(self, video_path, name="video"):
         self.writer.add_video(name, video_path)
     def log_image(self, image_path, name="image"):

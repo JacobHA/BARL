@@ -60,6 +60,9 @@ class SoftQAgent(BaseAgent):
         # Make (all) softqs learnable:
         self.optimizer = torch.optim.Adam(self.model.parameters(), lr=self.learning_rate)
 
+        # TODO: allow for non uniform priors
+        self.log_pi0 = -torch.log(torch.tensor(self.nA))
+
     def exploration_policy(self, state: np.ndarray) -> int:
         with torch.no_grad():
             # return self.env.action_space.sample()
@@ -67,7 +70,7 @@ class SoftQAgent(BaseAgent):
             # calculate boltzmann policy:
             qvals = qvals.squeeze()
             # sample from logits:
-            pi = torch.distributions.Categorical(logits = self.beta * qvals)
+            pi = torch.distributions.Categorical(logits = self.beta * qvals + self.log_pi0)
             action = pi.sample()
             return action.item()
     
@@ -75,7 +78,7 @@ class SoftQAgent(BaseAgent):
     def evaluation_policy(self, state: np.ndarray) -> int:
         # Get the greedy action from the q values:
         with torch.no_grad():
-            qvals = self.online_softqs(state).to(device=self.device)
+            qvals = self.online_softqs(state).to(device=self.device) + 1 / self.beta * self.log_pi0
             qvals = qvals.squeeze()
             return torch.argmax(qvals).item()
         
@@ -92,8 +95,7 @@ class SoftQAgent(BaseAgent):
 
             next_softqs = self.target_softqs(next_states)
             
-            next_v = 1/self.beta * (torch.logsumexp(
-                self.beta * next_softqs, dim=-1) - torch.log(torch.Tensor([self.nA])).to(self.device))
+            next_v = 1/self.beta * (torch.logsumexp(self.beta * next_softqs, dim=-1) + self.log_pi0)
             next_v = next_v.reshape(-1, 1)
 
             # Backup equation:
@@ -101,6 +103,7 @@ class SoftQAgent(BaseAgent):
 
         # Calculate the softq ("critic") loss:
         loss = 0.5*torch.nn.functional.mse_loss(curr_softq, expected_curr_softq)
+        # loss += 0.005*torch.nn.functional.mse_loss(curr_softq, curr_softq.detach())
         
         self.log_history("train/online_q_mean", curr_softq.mean().item(), self.learn_env_steps)
         # log the loss:
@@ -119,8 +122,8 @@ class SoftQAgent(BaseAgent):
 
 if __name__ == '__main__':
     import gymnasium as gym
-    env = gym.make('CartPole-v1')
-    logger = TensorboardLogger('logs/cartpole')
+    env = gym.make('Acrobot-v1')
+    logger = TensorboardLogger('logs/acro')
     #logger = WandBLogger(entity='jacobhadamczyk', project='test')
     mlp = make_mlp(env.unwrapped.observation_space.shape[0], env.unwrapped.action_space.n, hidden_dims=[32, 32])
     agent = SoftQAgent(env,
