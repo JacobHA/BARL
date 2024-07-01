@@ -5,10 +5,10 @@ import torch
 from stable_baselines3.common.buffers import ReplayBuffer
 import gymnasium as gym
 from typing import Optional, Union, Tuple, List
+import tqdm
 from typeguard import typechecked
 from utils import auto_device, env_id_to_envs, find_torch_modules
 from Logger import BaseLogger, StdLogger
-
 from Buffer import Buffer
 # use get_type_hints to throw errors if the user passes in an invalid type:
 
@@ -20,21 +20,6 @@ def get_new_params(base_cls_obj, locals):
 
     return {**locals, **base_class_kwargs}
 
-
-class EvalCallback:
-    def __init__(self, agent: 'BaseAgent'):
-        self.agent = agent
-
-
-class AUCCallback(EvalCallback):
-    def __init__(self, agent: 'BaseAgent'):
-        super().__init__(agent)
-        self.auc = 0
-    def __call__(self, state=None, action=None, reward=None, done=None, end=False):
-        if end:
-            self.agent.log_history('eval/auc', self.auc, self.agent.learn_env_steps)
-            return
-        self.auc += reward
 
 class BaseAgent:
     @typechecked
@@ -67,7 +52,7 @@ class BaseAgent:
             'train/lr': 'learning_rate',
         }
         self.learn_env_steps = 0
-        self.tot_env_steps = 0
+        self.total_env_steps = 0
         self.kwargs = get_new_params(None, locals())
         is_atari = False
         permute_dims = False
@@ -75,6 +60,7 @@ class BaseAgent:
             if 'ALE' in env_id or 'NoFrameskip' in env_id:
                 is_atari=True
                 permute_dims=True
+            self.env_str = env_id
         self.env, self.eval_env = env_id_to_envs(env_id, render, is_atari=is_atari, permute_dims=permute_dims)
 
         if hasattr(self.env.unwrapped.spec, 'id'):
@@ -172,55 +158,59 @@ class BaseAgent:
         self.learn_env_steps = 0
         self.total_timesteps = total_timesteps
 
-        while self.learn_env_steps < total_timesteps:
-            state, _ = self.env.reset()
+        with tqdm.tqdm(total=total_timesteps, desc="Training") as pbar:
 
-            done = False
-            self.num_episodes += 1
-            self.rollout_reward = 0
-            avg_ep_len = 0
-            while not done and self.learn_env_steps < total_timesteps:
-                action = self.exploration_policy(state)
+            while self.learn_env_steps < total_timesteps:
+                state, _ = self.env.reset()
 
-                next_state, reward, terminated, truncated, infos = self.env.step(
-                    action)
-                self._on_step()
-                avg_ep_len += 1
-                done = terminated or truncated
-                self.rollout_reward += reward
+                done = False
+                self.num_episodes += 1
+                self.rollout_reward = 0
+                avg_ep_len = 0
+                while not done and self.learn_env_steps < total_timesteps:
+                    action = self.exploration_policy(state)
 
-                self.train_this_step = (self.train_interval == -1 and terminated) or \
-                    (self.train_interval != -1 and self.learn_env_steps %
-                     self.train_interval == 0)
+                    next_state, reward, terminated, truncated, infos = self.env.step(
+                        action)
+                    self._on_step()
+                    avg_ep_len += 1
+                    done = terminated or truncated
+                    self.rollout_reward += reward
 
-                # Add the transition to the replay buffer:
-                action = np.array([action])
-                state = np.array([state])
-                next_state = np.array([next_state])
-                self.buffer.add(state, action, reward, terminated)
-                state = next_state
-                if self.learn_env_steps % self.log_interval == 0:
-                    train_time = (time.thread_time_ns() - init_train_time) / 1e9
-                    train_fps = self.log_interval / train_time
-                    self.log_history('time/train_fps', train_fps, self.learn_env_steps)
-                    self.avg_eval_rwd = self.evaluate()
-                    init_train_time = time.thread_time_ns()
-            if done:
-                self.log_history("rollout/ep_reward", self.rollout_reward, self.learn_env_steps)
-                self.log_history("rollout/avg_episode_length", avg_ep_len, self.learn_env_steps)
+                    self.train_this_step = (self.train_interval == -1 and terminated) or \
+                        (self.train_interval != -1 and self.learn_env_steps %
+                        self.train_interval == 0)
+
+                    # Add the transition to the replay buffer:
+                    action = np.array([action])
+                    state = np.array([state])
+                    next_state = np.array([next_state])
+                    self.buffer.add(state, action, reward, terminated)
+                    state = next_state
+                    if self.learn_env_steps % self.log_interval == 0:
+                        train_time = (time.thread_time_ns() - init_train_time) / 1e9
+                        train_fps = self.log_interval / train_time
+                        self.log_history('time/train_fps', train_fps, self.learn_env_steps)
+                        self.avg_eval_rwd = self.evaluate()
+                        init_train_time = time.thread_time_ns()
+                        pbar.update(self.log_interval)
+
+                if done:
+                    self.log_history("rollout/ep_reward", self.rollout_reward, self.learn_env_steps)
+                    self.log_history("rollout/avg_episode_length", avg_ep_len, self.learn_env_steps)
 
     def _on_step(self) -> None:
         """
         This method is called after every step in the environment
         """
         self.learn_env_steps += 1
-        self.tot_env_steps += 1
+        self.total_env_steps += 1
 
         if self.train_this_step:
             if self.learn_env_steps > self.learning_starts:
                 self._train(self.gradient_steps, self.batch_size)
 
-    def _log_stats(self, train_time, eval_time):
+    def _log_stats(self):
         # Get the current learning rate from the optimizer:
         for log_name, class_var in self.LOG_PARAMS.items():
             self.log_history(log_name, self.__dict__[class_var], self.learn_env_steps)
@@ -241,8 +231,8 @@ class BaseAgent:
                 state = next_state
                 avg_reward += reward
                 done = terminated or truncated
-                for cb in self.eval_callbacks:
-                    cb(state=state, action=action, reward=reward, done=done, end=False)
+                for callback in self.eval_callbacks:
+                    callback(state=state, action=action, reward=reward, done=done, end=False)
         eval_time = (time.process_time_ns() - init_eval_time) / 1e9
         avg_reward /= n_episodes
         eval_fps = n_steps / eval_time
@@ -251,8 +241,8 @@ class BaseAgent:
         self.log_history('eval/avg_episode_length', n_steps / n_episodes, self.learn_env_steps)
         self.log_history('eval/time', eval_time, self.learn_env_steps)
         self.log_history('eval/fps', eval_fps, self.learn_env_steps)
-        for cb in self.eval_callbacks:
-            cb(self, end=True)
+        for callback in self.eval_callbacks:
+            callback(self, end=True)
         return avg_reward
 
     def save(self, path=None):

@@ -23,10 +23,10 @@ class MLP(nn.Module):
 
         self.fc_layers = []
         in_dim = input_dim
-        for h_dim in hidden_dims:
-            self.fc_layers.append(nn.Linear(in_dim, h_dim).to(self.device))
+        for hidden_dim in hidden_dims:
+            self.fc_layers.append(nn.Linear(in_dim, hidden_dim).to(self.device))
             self.fc_layers.append(activation())
-            in_dim = h_dim
+            in_dim = hidden_dim
         self.fc_layers.append(nn.Linear(in_dim, output_dim).to(self.device))
         if output_activation is not None:
             self.fc_layers.append(output_activation())
@@ -53,11 +53,11 @@ def make_mlp(input_dim=None, output_dim=None, hidden_dims=(128, 128), activation
 def make_cnn_sequential(input_dim, output_dim, hidden_dims=(32, 64), activation=nn.ReLU, output_activation=None):
     layers = []
     in_channels = input_dim[0]
-    for h_dim in hidden_dims:
-        layers.append(nn.Conv2d(in_channels, h_dim, kernel_size=3, stride=1, padding=1))
+    for hidden_dim in hidden_dims:
+        layers.append(nn.Conv2d(in_channels, hidden_dim, kernel_size=3, stride=1, padding=1))
         layers.append(activation())
         layers.append(nn.MaxPool2d(kernel_size=2, stride=2))
-        in_channels = h_dim
+        in_channels = hidden_dim
     layers.append(nn.Flatten())
     layers.append(nn.Linear(hidden_dims[-1] * (input_dim[1] // 2 ** len(hidden_dims)) ** 2, output_dim))
     if output_activation is not None:
@@ -128,10 +128,10 @@ def make_atari_nature_cnn(output_dim, input_dim=(84, 84, 4), device='auto', acti
 def make_continuous_action_mlp(input_dim, output_dim, hidden_dims=(128, 128), activation=nn.ReLU, output_activation=None):
     layers = []
     in_dim = input_dim
-    for h_dim in hidden_dims:
-        layers.append(nn.Linear(in_dim, h_dim))
+    for hidden_dim in hidden_dims:
+        layers.append(nn.Linear(in_dim, hidden_dim))
         layers.append(activation())
-        in_dim = h_dim
+        in_dim = hidden_dim
     layers.append(nn.Linear(in_dim, output_dim))
     if output_activation is not None:
         layers.append(output_activation())

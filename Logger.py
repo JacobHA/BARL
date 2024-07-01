@@ -3,6 +3,8 @@ from functools import lru_cache
 from torch.utils.tensorboard import SummaryWriter
 import logging
 import wandb
+import os
+
 
 
 logger_types = {'wandb', 'std', 'tensorboard'}
@@ -59,9 +61,8 @@ class StdLogger(BaseLogger):
         self.log.info(f"{param}: {value}")
     @lru_cache(None)
     def log_video(self, *args, **kwargs):
-        self.log.warn("videos are not logged by std logger")
+        self.log.warning("videos are not logged by std logger")
     
-import os
 class TensorboardLogger(BaseLogger):
     def __init__(self, log_dir):
         # Check for existence of log_dir:

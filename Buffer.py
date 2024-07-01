@@ -66,12 +66,7 @@ class Buffer:
         self.buffer_size = buffer_size
         self.n_stored = 0
         self.device = auto_device(device)
-        self.states = None
-        self.actions = None
-        self.dones = None
-        self.rewards = None
-        self.ep_start = None
-        self.ep_end = None
+
         self.transforms = {}
         self.clear()
         self.done_handlers = done_handlers
@@ -113,7 +108,7 @@ class Buffer:
             print('preloading not ready, preparing for the next time')
             self.preloaded_sample = None
             self._preload(batch_size)
-        idx = np.random.randint(low=0,high=self.n_stored-1, size=(batch_size,))
+        idx = np.random.randint(low=0, high=self.n_stored-1, size=(batch_size,))
         # todo: valid next state indexing
         # todo: td sampling
         return (th.from_numpy(self.states [idx],    ).to(self.device),
@@ -123,5 +118,5 @@ class Buffer:
                 th.from_numpy(self.dones  [idx],    ).to(self.device))
 
     def _handle_done(self):
-        for handler, h_kwargs in self.done_handlers:
-            handler(self, **h_kwargs)
+        for handler, handler_kwargs in self.done_handlers:
+            handler(self, **handler_kwargs)
