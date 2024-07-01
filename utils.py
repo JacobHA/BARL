@@ -108,10 +108,6 @@ def polyak(target_nets, online_nets, tau):
     Raises:
         ValueError: If the number of online networks does not match the number of target networks.
     """
-    if len(online_nets) != len(target_nets):
-        raise ValueError(f"Number of online networks does not match the number of target networks. \
-            Expected {len(online_nets)} target networks, got {len(target_nets)}.")
-
     with torch.no_grad():
         # zip does not raise an exception if length of parameters does not match.
         for new_params, target_params in zip(online_nets.parameters(), target_nets.parameters()):

@@ -2,7 +2,7 @@ from typing import Optional
 import gymnasium
 import numpy as np
 import torch
-from Architectures import make_mlp
+from Architectures import make_atari_nature_cnn, make_mlp, preprocess_obs
 from BaseAgent import BaseAgent, get_new_params
 from utils import polyak
 
@@ -84,7 +84,7 @@ class DQN(BaseAgent):
 
     def evaluation_policy(self, state: np.ndarray) -> int:
         # Get the greedy action from the q values:
-        qvals = self.online_qs(torch.from_numpy(state).to(device=self.device))
+        qvals = self.online_qs(state)
         qvals = qvals.squeeze()
         return torch.argmax(qvals).item()
     
@@ -119,13 +119,15 @@ class DQN(BaseAgent):
 
 if __name__ == '__main__':
     import gymnasium as gym
-    env = gym.make('CartPole-v1')
+    env = 'ALE/Pong-v5'
+
     from Logger import WandBLogger, TensorboardLogger
-    logger = TensorboardLogger('logs/cartpole')
+    logger = TensorboardLogger('logs/atari')
     #logger = WandBLogger(entity='jacobhadamczyk', project='test')
-    mlp = make_mlp(env.unwrapped.observation_space.shape[0], env.unwrapped.action_space.n, hidden_dims=[32, 32])#, activation=torch.nn.Mish)
+    # mlp = make_mlp(env.unwrapped.observation_space.shape[0], env.unwrapped.action_space.n, hidden_dims=[32, 32])#, activation=torch.nn.Mish)
+    cnn = make_atari_nature_cnn(gym.make(env).action_space.n)
     agent = DQN(env, 
-                architecture=mlp,
+                architecture=cnn,
                 loggers=(logger,),
                 learning_rate=0.001,
                 train_interval=1,
