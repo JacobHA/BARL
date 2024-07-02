@@ -41,6 +41,7 @@ class BaseAgent:
                  save_checkpoints: bool = False,
                  seed: Optional[int] = None,
                  eval_callbacks: List[callable] = [],
+                 use_threaded_eval: bool = True,
                  ) -> None:
 
         self.LOG_PARAMS = {
@@ -78,6 +79,7 @@ class BaseAgent:
         self.batch_size = batch_size
         
         self.loggers = loggers
+        self.use_threaded_eval = use_threaded_eval
 
         self.gradient_steps = gradient_steps
         self.device = auto_device(device)
@@ -154,14 +156,15 @@ class BaseAgent:
         """
         Train the agent for total_timesteps
         """
-        stop_event = threading.Event()
-        def evaluation_worker():
-            while not stop_event.is_set():
-                self.evaluate(n_episodes=10)
-                # stop_event.wait(10)
+        if self.use_threaded_eval:
+            stop_event = threading.Event()
+            def evaluation_worker():
+                while not stop_event.is_set():
+                    self.evaluate(n_episodes=10)
+                    # stop_event.wait(10)
 
-        worker = threading.Thread(target=evaluation_worker)
-        worker.start()
+            worker = threading.Thread(target=evaluation_worker)
+            worker.start()
 
         # Start a timer to log fps:
         init_train_time = time.thread_time_ns()
@@ -201,14 +204,17 @@ class BaseAgent:
                         train_time = (time.thread_time_ns() - init_train_time) / 1e9
                         train_fps = self.log_interval / train_time
                         self.log_history('time/train_fps', train_fps, self.learn_env_steps)
-                        # Restart the worker:
-                        self.avg_eval_rwd = worker.join()
-                        # worker = threading.Thread(target=self.evaluate, args=(10,))
+                        if self.use_threaded_eval:
+                            # Restart the worker:
+                            self.avg_eval_rwd = worker.join()
+                            # worker = threading.Thread(target=self.evaluate, args=(10,))
+                        else:
+                            self.avg_eval_rwd = self.evaluate(n_episodes=10)
                         
                         init_train_time = time.thread_time_ns()
                         pbar.update(self.log_interval)
-
-                    stop_event.set()
+                    if self.use_threaded_eval:
+                        stop_event.set()
                     # worker.join()
                 if done:
                     self.log_history("rollout/ep_reward", self.rollout_reward, self.learn_env_steps)

@@ -14,7 +14,7 @@ class SoftQAgent(BaseAgent):
     def __init__(self,
                  *args,
                  gamma: float = 0.99,
-                 beta: float = 5.0,
+                 beta: float = 1.0,
                  use_target_network: bool = False,
                  target_update_interval: Optional[int] = None,
                  polyak_tau: Optional[float] = None,
@@ -116,15 +116,15 @@ class SoftQAgent(BaseAgent):
         # Periodically update the target network:
         if self.use_target_network and self.learn_env_steps % self.target_update_interval == 0:
             # Use Polyak averaging as specified:
-            polyak(self.online_softqs, self.target_softqs, self.polyak_tau)
+            polyak(self.online_softqs, self.target_softqs, self.polyak_tau, self.device)
 
         super()._on_step()
 
 
 if __name__ == '__main__':
     import gymnasium as gym
-    env = gym.make('Acrobot-v1')
-    logger = TensorboardLogger('logs/acrb')
+    env = gym.make('CartPole-v1')
+    logger = TensorboardLogger('logs/cartpole')
     #logger = WandBLogger(entity='jacobhadamczyk', project='test')
     mlp = make_mlp(env.unwrapped.observation_space.shape[0], env.unwrapped.action_space.n, hidden_dims=[32, 32])
     agent = SoftQAgent(env,

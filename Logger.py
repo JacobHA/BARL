@@ -85,3 +85,14 @@ class TensorboardLogger(BaseLogger):
         self.writer.add_video(name, video_path)
     def log_image(self, image_path, name="image"):
         self.writer.add_image(name, image_path)
+
+
+class NullLogger(BaseLogger):
+    def log_hparams(self, hparam_dict):
+        pass
+    def log_history(self, param, value, step):
+        pass
+    def log_video(self, video_path):
+        pass
+    def log_image(self, image_path):
+        pass
