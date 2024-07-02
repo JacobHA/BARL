@@ -3,6 +3,8 @@ from functools import lru_cache
 from torch.utils.tensorboard import SummaryWriter
 import logging
 import wandb
+import os
+
 
 
 logger_types = {'wandb', 'std', 'tensorboard'}
@@ -42,7 +44,6 @@ class StdLogger(BaseLogger):
         if logger is not None:
             self.log = logger
         else:
-            
             self.log = logging.getLogger("Barl")
             self.log.setLevel(logging.INFO)
             st = logging.StreamHandler()
@@ -59,9 +60,8 @@ class StdLogger(BaseLogger):
         self.log.info(f"{param}: {value}")
     @lru_cache(None)
     def log_video(self, *args, **kwargs):
-        self.log.warn("videos are not logged by std logger")
+        self.log.warning("videos are not logged by std logger")
     
-import os
 class TensorboardLogger(BaseLogger):
     def __init__(self, log_dir):
         # Check for existence of log_dir:
@@ -75,9 +75,9 @@ class TensorboardLogger(BaseLogger):
         self.writer = SummaryWriter(log_dir)
     def log_hparams(self, hparam_dict):
         for param, value in hparam_dict.items():
-            self.writer.add_text(param, str(value))
+            self.writer.add_text(param, str(value), global_step=0)
     def log_history(self, param, value, step):
-        self.writer.add_scalar(param, value, step)
+        self.writer.add_scalar(param, value, global_step=step)
     def log_video(self, video_path, name="video"):
         self.writer.add_video(name, video_path)
     def log_image(self, image_path, name="image"):

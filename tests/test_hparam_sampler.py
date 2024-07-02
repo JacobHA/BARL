@@ -5,6 +5,8 @@ from unittest.mock import patch
 
 # Assuming the function `sample_wandb_hyperparams` is defined in a module named `hyperparam_sampling`
 # from hyperparam_sampling import sample_wandb_hyperparams
+import sys
+sys.path.append('./')
 from utils import sample_wandb_hyperparams
 
 class TestSampleWandbHyperparams(unittest.TestCase):

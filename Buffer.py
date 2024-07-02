@@ -48,6 +48,7 @@ class Buffer:
             action:Union[th.Tensor,np.ndarray,int,np.int64]=None,
             done_handlers:Tuple[DoneHandler, ...] = (),
             device:str='auto',
+            preload_sample:bool=True,
     ):
         """
         n_samples: int - number of samples to store
@@ -65,16 +66,11 @@ class Buffer:
         self.buffer_size = buffer_size
         self.n_stored = 0
         self.device = auto_device(device)
-        self.states = None
-        self.actions = None
-        self.dones = None
-        self.rewards = None
-        self.ep_start = None
-        self.ep_end = None
+
         self.transforms = {}
         self.clear()
         self.done_handlers = done_handlers
-        self.preload_sample = True
+        self.preload_sample = preload_sample
         self.preloaded_sample = None
 
     def _preload(self, batch_size):
@@ -107,13 +103,12 @@ class Buffer:
 
     def sample(self, batch_size, preloading=False):
         if not preloading and self.preloaded_sample is not None:
-            # print('Preloaded sample')
             return self.preloaded_sample
         if self.preload_sample and not preloading:
             print('preloading not ready, preparing for the next time')
             self.preloaded_sample = None
             self._preload(batch_size)
-        idx = np.random.randint(low=0,high=self.n_stored, size=(batch_size,))
+        idx = np.random.randint(low=0, high=self.n_stored-1, size=(batch_size,))
         # todo: valid next state indexing
         # todo: td sampling
         return (th.from_numpy(self.states [idx],    ).to(self.device),
@@ -123,5 +118,5 @@ class Buffer:
                 th.from_numpy(self.dones  [idx],    ).to(self.device))
 
     def _handle_done(self):
-        for handler, h_kwargs in self.done_handlers:
-            handler(self, **h_kwargs)
+        for handler, handler_kwargs in self.done_handlers:
+            handler(self, **handler_kwargs)
