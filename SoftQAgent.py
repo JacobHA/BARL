@@ -4,7 +4,8 @@ import numpy as np
 import torch
 
 from Architectures import make_mlp
-from BaseAgent import BaseAgent, get_new_params, AUCCallback
+from BaseAgent import BaseAgent, get_new_params
+from callbacks import AUCCallback
 from utils import polyak
 from Logger import WandBLogger, TensorboardLogger
 
@@ -123,7 +124,7 @@ class SoftQAgent(BaseAgent):
 if __name__ == '__main__':
     import gymnasium as gym
     env = gym.make('Acrobot-v1')
-    logger = TensorboardLogger('logs/acro')
+    logger = TensorboardLogger('logs/acrb')
     #logger = WandBLogger(entity='jacobhadamczyk', project='test')
     mlp = make_mlp(env.unwrapped.observation_space.shape[0], env.unwrapped.action_space.n, hidden_dims=[32, 32])
     agent = SoftQAgent(env,

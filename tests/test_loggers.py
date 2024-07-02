@@ -52,8 +52,6 @@ class TestTensorboardLogger(unittest.TestCase):
 
     def setUp(self):
         self.log_dir = 'test_log_dir'
-        if os.path.exists(self.log_dir):
-            shutil.rmtree(self.log_dir)
         self.tensorboard_logger = TensorboardLogger(self.log_dir)
 
     def tearDown(self):
