@@ -1,4 +1,5 @@
 import os
+import threading
 import time
 import numpy as np
 import torch
@@ -153,6 +154,15 @@ class BaseAgent:
         """
         Train the agent for total_timesteps
         """
+        stop_event = threading.Event()
+        def evaluation_worker():
+            while not stop_event.is_set():
+                self.evaluate(n_episodes=10)
+                # stop_event.wait(10)
+
+        worker = threading.Thread(target=evaluation_worker)
+        worker.start()
+
         # Start a timer to log fps:
         init_train_time = time.thread_time_ns()
         self.learn_env_steps = 0
@@ -191,13 +201,19 @@ class BaseAgent:
                         train_time = (time.thread_time_ns() - init_train_time) / 1e9
                         train_fps = self.log_interval / train_time
                         self.log_history('time/train_fps', train_fps, self.learn_env_steps)
-                        self.avg_eval_rwd = self.evaluate()
+                        # Restart the worker:
+                        self.avg_eval_rwd = worker.join()
+                        # worker = threading.Thread(target=self.evaluate, args=(10,))
+                        
                         init_train_time = time.thread_time_ns()
                         pbar.update(self.log_interval)
 
+                    stop_event.set()
+                    # worker.join()
                 if done:
                     self.log_history("rollout/ep_reward", self.rollout_reward, self.learn_env_steps)
                     self.log_history("rollout/avg_episode_length", avg_ep_len, self.learn_env_steps)
+
 
     def _on_step(self) -> None:
         """

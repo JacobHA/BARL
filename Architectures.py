@@ -69,6 +69,7 @@ def preprocess_obs(obs, device):
     if isinstance(obs, np.ndarray):
         obs = torch.from_numpy(obs)
 
+    # Pixel observations
     if obs.dtype == torch.uint8:
         if len(obs.shape) == 3:
             obs = obs.unsqueeze(0).to(device=device)
