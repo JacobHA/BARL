@@ -1,19 +1,19 @@
-import os
 import random
+from typing import Union
+import copy
 
 import gymnasium as gym
 import numpy as np
-from stable_baselines3.common.utils import polyak_update
-import time
 
 import torch
 import wandb
+
+from wrappers import FireResetEnv, FrameStack, PermuteAtariObs
 
 def env_id_to_envs(env_id, render):
     if isinstance(env_id, gym.Env):
         env = env_id
         # Make a new copy for the eval env:
-        import copy
         eval_env = copy.deepcopy(env_id)
         return env, eval_env
     
@@ -97,6 +97,7 @@ def find_torch_modules(module, modules=None, prefix=None):
     return modules
 
 def polyak(target_nets, online_nets, tau):
+    tau = 1 - tau
     """
     Perform a Polyak (exponential moving average) update for target networks.
 
@@ -107,14 +108,94 @@ def polyak(target_nets, online_nets, tau):
     Raises:
         ValueError: If the number of online networks does not match the number of target networks.
     """
-    if len(online_nets) != len(target_nets):
-        raise ValueError(f"Number of online networks does not match the number of target networks. \
-            Expected {len(online_nets)} target networks, got {len(target_nets)}.")
-
     with torch.no_grad():
         # zip does not raise an exception if length of parameters does not match.
         for new_params, target_params in zip(online_nets.parameters(), target_nets.parameters()):
             # for new_param, target_param in zip_strict(new_params, target_params):
             #     target_param.data.mul_(tau).add_(new_param.data, alpha=1.0-tau)
             #TODO: Remove dependency on stable_baselines3 by using in-place ops as above.
-            polyak_update(new_params, target_params, 1-tau)
+            # zip does not raise an exception if length of parameters does not match.
+            for param, target_param in zip_strict(new_params, target_params):
+                target_param.data.mul_(1 - tau)
+                torch.add(target_param.data, param.data, alpha=tau, out=target_param.data)
+
+
+def auto_device(device: Union[torch.device, str] = 'auto'):
+    if device == 'auto':
+        return 'cuda' if torch.cuda.is_available() else 'cpu'
+    else:
+        return device
+    
+def zip_strict(*iterables):
+    """
+    zip() function but enforces that iterables are of equal length.
+    Raises ValueError if iterables are not of equal length.
+
+    :param *iterables: iterables to zip()
+    """
+
+    # Yield the zipped items
+    yield from zip(*iterables, strict=True)
+
+def env_id_to_envs(env_id, render, is_atari=False, permute_dims=False):
+    if isinstance(env_id, gym.Env):
+        env = env_id
+        # Make a new copy for the eval env:
+        eval_env = copy.deepcopy(env_id)
+        return env, eval_env
+    if is_atari:
+        return atari_env_id_to_envs(env_id, render, n_envs=1, frameskip=4, framestack_k=4, permute_dims=permute_dims)
+    else:
+        env = gym.make(env_id)
+        eval_env = gym.make(env_id, render_mode='human' if render else None)
+        return env, eval_env
+
+from gymnasium.wrappers.atari_preprocessing import AtariPreprocessing
+
+def atari_env_id_to_envs(env_id, render, n_envs, frameskip=1, framestack_k=None, grayscale_obs=True, permute_dims=False):
+    if isinstance(env_id, str):
+        # Don't vectorize if there is only one env
+        if n_envs==1:
+            env = gym.make(env_id, frameskip=frameskip)
+            env = AtariPreprocessing(env, terminal_on_life_loss=True, screen_size=84, grayscale_obs=grayscale_obs, grayscale_newaxis=True, scale_obs=False, noop_max=30, frame_skip=1)
+            if framestack_k:
+                env = FrameStack(env, framestack_k)
+            # permute dims for nature CNN in sb3
+            if permute_dims:
+                env = PermuteAtariObs(env)
+
+            # make another instance for evaluation purposes only:
+            eval_env = gym.make(env_id, render_mode='human' if render else None, frameskip=frameskip)
+            eval_env = AtariPreprocessing(eval_env, terminal_on_life_loss=True, screen_size=84, grayscale_obs=grayscale_obs, grayscale_newaxis=True, scale_obs=False, noop_max=30, frame_skip=1)
+            if framestack_k:
+                eval_env = FrameStack(eval_env, framestack_k)
+            if permute_dims:
+                eval_env = PermuteAtariObs(eval_env)
+
+            # if render:
+            #     eval_env = RecordVideo(eval_env, video_folder='videos')
+            env = FireResetEnv(env)
+            eval_env = FireResetEnv(eval_env)
+        else:
+            env = gym.make_vec(
+                env_id, render_mode='human' if render else None, num_envs=n_envs, frameskip=1,
+                wrappers=[
+                    lambda e: AtariPreprocessing(e, terminal_on_life_loss=True, screen_size=84, grayscale_obs=grayscale_obs, grayscale_newaxis=True, scale_obs=True, frame_skip=frameskip, noop_max=30)
+                ])
+
+            eval_env = gym.make_vec(
+                env_id, render_mode='human' if render else None, num_envs=n_envs, frameskip=1,
+                wrappers=[
+                    lambda e: AtariPreprocessing(e, terminal_on_life_loss=True, screen_size=84, grayscale_obs=grayscale_obs, grayscale_newaxis=True, scale_obs=True, frame_skip=frameskip, noop_max=30)
+                ])
+
+    elif isinstance(env_id, gym.Env):
+        env = env_id
+        # Make a new copy for the eval env:
+        eval_env = copy.deepcopy(env_id)
+    else:
+        env = env_id
+        # Make a new copy for the eval env:
+        eval_env = copy.deepcopy(env_id)
+
+    return env, eval_env

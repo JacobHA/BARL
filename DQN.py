@@ -2,7 +2,7 @@ from typing import Optional
 import gymnasium
 import numpy as np
 import torch
-from Architectures import make_mlp
+from Architectures import make_atari_nature_cnn, make_mlp
 from BaseAgent import BaseAgent, get_new_params
 from utils import polyak
 
@@ -16,6 +16,7 @@ class DQN(BaseAgent):
                  use_target_network: bool = False,
                  target_update_interval: Optional[int] = None,
                  polyak_tau: Optional[float] = None,
+                 architecture_kwargs: dict = {},
                  **kwargs,
                  ):
         
@@ -34,12 +35,12 @@ class DQN(BaseAgent):
        
         self.nA = self.env.action_space.n
         self.log_hparams(self.kwargs)
-        self.online_qs = self.architecture
+        self.online_qs = self.architecture(**architecture_kwargs)
         self.model = self.online_qs
 
-
         if self.use_target_network:
-            self.target_qs = self.architecture
+            # Make another instance of the architecture for the target network:
+            self.target_qs = self.architecture(**architecture_kwargs)
             self.target_qs.load_state_dict(self.online_qs.state_dict())
             if polyak_tau is not None:
                 assert 0 <= polyak_tau <= 1, "Polyak tau must be in the range [0, 1]."
@@ -65,16 +66,15 @@ class DQN(BaseAgent):
         super()._on_step()
 
         # Update epsilon:
-        self.epsilon = max(self.minimum_epsilon, (self.initial_epsilon - self.env_steps / self.total_timesteps / self.exploration_fraction))
+        self.epsilon = max(self.minimum_epsilon, (self.initial_epsilon - self.learn_env_steps / self.total_timesteps / self.exploration_fraction))
 
-        if self.env_steps % self.log_interval == 0:
-            self.log_history("train/epsilon", self.epsilon, self.env_steps)
+        if self.learn_env_steps % self.log_interval == 0:
+            self.log_history("train/epsilon", self.epsilon, self.learn_env_steps)
 
         # Periodically update the target network:
-        if self.use_target_network and self.env_steps % self.target_update_interval == 0:
+        if self.use_target_network and self.learn_env_steps % self.target_update_interval == 0:
             # Use Polyak averaging as specified:
             polyak(self.online_qs, self.target_qs, self.polyak_tau)
-
 
 
     def exploration_policy(self, state: np.ndarray) -> int:
@@ -86,13 +86,15 @@ class DQN(BaseAgent):
 
     def evaluation_policy(self, state: np.ndarray) -> int:
         # Get the greedy action from the q values:
-        qvals = self.online_qs(torch.tensor(state))
+        qvals = self.online_qs(state)
         qvals = qvals.squeeze()
         return torch.argmax(qvals).item()
     
 
     def calculate_loss(self, batch):
-        states, actions, next_states, dones, rewards = batch
+        states, actions, rewards, next_states, dones = batch
+        actions = actions.long()
+        dones = dones.float()
         curr_q = self.online_qs(states).squeeze().gather(1, actions.long())
         with torch.no_grad():
             if isinstance(self.env.observation_space, gymnasium.spaces.Discrete):
@@ -110,29 +112,38 @@ class DQN(BaseAgent):
         # Calculate the q ("critic") loss:
         loss = 0.5*torch.nn.functional.mse_loss(curr_q, expected_curr_q)
         
-        self.log_history("train/online_q_mean", curr_q.mean().item(), self.env_steps)
+        self.log_history("train/online_q_mean", curr_q.mean().item(), self.learn_env_steps)
         # log the loss:
-        logger.log_history("train/loss", loss.item(), self.env_steps)
+        logger.log_history("train/loss", loss.item(), self.learn_env_steps)
 
         return loss
 
 
 if __name__ == '__main__':
     import gymnasium as gym
-    env = gym.make('CartPole-v1')
+    env = 'ALE/Pong-v5'
+
     from Logger import WandBLogger, TensorboardLogger
-    logger = TensorboardLogger('logs/cartpole')
+    logger = TensorboardLogger('logs/atari')
     #logger = WandBLogger(entity='jacobhadamczyk', project='test')
-    mlp = make_mlp(env.unwrapped.observation_space.shape[0], env.unwrapped.action_space.n, hidden_dims=[32, 32])#, activation=torch.nn.Mish)
+    # mlp = make_mlp(env.unwrapped.observation_space.shape[0], env.unwrapped.action_space.n, hidden_dims=[32, 32])#, activation=torch.nn.Mish)
+    # cnn = make_atari_nature_cnn(gym.make(env).action_space.n)
+    env = 'CartPole-v1'
     agent = DQN(env, 
-                architecture=mlp, 
+                architecture=make_mlp,
+                architecture_kwargs={'input_dim': gym.make(env).observation_space.shape[0],
+                                     'output_dim': gym.make(env).action_space.n,
+                                     'hidden_dims': [64, 64]},
                 loggers=(logger,),
                 learning_rate=0.001,
                 train_interval=1,
                 gradient_steps=1,
-                batch_size=256,
+                batch_size=64,
                 use_target_network=True,
                 target_update_interval=10,
-                polyak_tau=1.0
+                polyak_tau=1.0,
+                learning_starts=1000,
+                log_interval=500,
+
                 )
-    agent.learn(total_timesteps=50000)
+    agent.learn(total_timesteps=60_000)
