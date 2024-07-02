@@ -75,7 +75,10 @@ class TensorboardLogger(BaseLogger):
         self.writer = SummaryWriter(log_dir)
     def log_hparams(self, hparam_dict):
         for param, value in hparam_dict.items():
-            self.writer.add_text(param, str(value), global_step=0)
+            if isinstance(value, str):
+                self.writer.add_text(param, value, global_step=0)
+            else:
+                self.writer.add_text(param, str(value), global_step=0)
     def log_history(self, param, value, step):
         self.writer.add_scalar(param, value, global_step=step)
     def log_video(self, video_path, name="video"):
