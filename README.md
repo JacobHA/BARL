@@ -17,20 +17,17 @@ This codebase provides implementations of many RL algorithms with the goal of be
 - [ ] Clean up eval thread
 
 
-
-In the future we would like to have implemented:
-
 ### Algorithms:
-- [ ] DQN
-- [ ] SQL
+- [x] DQN
+- [x] SQL (discrete actions)
 - [ ] SAC
 - [ ] Rainbow DQN
 - [ ] TD3
 - [ ] PPO
 
 ### Architectures:
-- [ ] MLP
-- [ ] CNN
+- [x] MLP
+- [x] CNN
 - [ ] LSTM
 - [ ] Dueling architectures
       
