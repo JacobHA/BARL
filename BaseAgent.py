@@ -40,6 +40,7 @@ class BaseAgent:
                  save_checkpoints: bool = False,
                  seed: Optional[int] = None,
                  eval_callbacks: List[callable] = [],
+                 use_threaded_eval: bool = True,
                  ) -> None:
 
         self.LOG_PARAMS = {
@@ -77,6 +78,7 @@ class BaseAgent:
         self.batch_size = batch_size
         
         self.loggers = loggers
+        self.use_threaded_eval = use_threaded_eval
 
         self.gradient_steps = gradient_steps
         self.device = auto_device(device)

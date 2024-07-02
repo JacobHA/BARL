@@ -23,7 +23,7 @@ class DQN(BaseAgent):
         super().__init__(*args, **kwargs)
         self.kwargs = get_new_params(self, locals())
         
-        self.algo_name = 'SQL'
+        self.algo_name = 'DQN'
         self.gamma = gamma
         self.minimum_epsilon = minimum_epsilon
         self.exploration_fraction = exploration_fraction
