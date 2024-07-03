@@ -139,5 +139,6 @@ if __name__ == '__main__':
                        target_update_interval=10,
                        polyak_tau=1.0,
                        eval_callbacks=[AUCCallback],
+                       use_threaded_eval=False,
                        )
     agent.learn(total_timesteps=50000)

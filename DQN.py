@@ -67,7 +67,9 @@ class DQN(BaseAgent):
         super()._on_step()
 
         # Update epsilon:
-        self.epsilon = max(self.minimum_epsilon, (self.initial_epsilon - self.learn_env_steps / self.total_timesteps / self.exploration_fraction))
+        self.epsilon = max(self.minimum_epsilon, 
+                           (self.initial_epsilon - 
+                            self.learn_env_steps / self.total_timesteps / self.exploration_fraction))
 
         if self.learn_env_steps % self.log_interval == 0:
             self.log_history("train/epsilon", self.epsilon, self.learn_env_steps)
@@ -98,6 +100,7 @@ class DQN(BaseAgent):
         dones = dones.float()
         curr_q = self.online_qs(states).squeeze().gather(1, actions.long())
         with torch.no_grad():
+            # TODO: push this into pre-processing to clean up the agent code:
             if isinstance(self.env.observation_space, gymnasium.spaces.Discrete):
                 states = states.squeeze()
                 next_states = next_states.squeeze()
@@ -127,24 +130,24 @@ if __name__ == '__main__':
     from Logger import WandBLogger, TensorboardLogger
     logger = TensorboardLogger('logs/atari')
 
-    # env = 'CartPole-v1'
+    env = 'CartPole-v1'
     agent = DQN(env, 
-                # architecture=make_mlp,
-                # architecture_kwargs={'input_dim': gym.make(env).observation_space.shape[0],
-                #                      'output_dim': gym.make(env).action_space.n,
-                #                      'hidden_dims': [64, 64]},
-                architecture=make_atari_nature_cnn,
-                architecture_kwargs={'output_dim': gym.make(env).action_space.n},
+                architecture=make_mlp,
+                architecture_kwargs={'input_dim': gym.make(env).observation_space.shape[0],
+                                     'output_dim': gym.make(env).action_space.n,
+                                     'hidden_dims': [64, 64]},
+                # architecture=make_atari_nature_cnn,
+                # architecture_kwargs={'output_dim': gym.make(env).action_space.n},
                 loggers=(logger,),
                 learning_rate=0.001,
-                train_interval=4,
-                gradient_steps=4,
+                train_interval=1,
+                gradient_steps=1,
                 batch_size=64,
-                use_target_network=True,
-                target_update_interval=1_000,
-                polyak_tau=1.0,
-                learning_starts=5_000,
-                log_interval=2000,
-
+                use_target_network=False,
+                # target_update_interval=10,
+                # polyak_tau=0.0,
+                learning_starts=100,
+                log_interval=200,
+                use_threaded_eval=False,
                 )
     agent.learn(total_timesteps=100_000)

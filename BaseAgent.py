@@ -174,6 +174,17 @@ class BaseAgent:
         with tqdm.tqdm(total=total_timesteps, desc="Training") as pbar:
 
             while self.learn_env_steps < total_timesteps:
+                # Check if worker is alive:
+                if self.use_threaded_eval:
+                    # stop_event = threading.Event()
+
+                    def evaluation_worker():
+                        # while not stop_event.is_set():
+                        self.evaluate(n_episodes=10)
+
+                    worker = threading.Thread(target=evaluation_worker)
+                    worker.start()
+
                 state, _ = self.env.reset()
 
                 done = False
@@ -206,16 +217,25 @@ class BaseAgent:
                         self.log_history('time/train_fps', train_fps, self.learn_env_steps)
                         if self.use_threaded_eval:
                             # Restart the worker:
-                            self.avg_eval_rwd = worker.join()
-                            # worker = threading.Thread(target=self.evaluate, args=(10,))
+                            # stop_event.set()
+                            worker.join()  # Wait for the worker to finish
+                            # stop_event.clear()  # Clear the stop event before restarting the worker
+                            # self.log_history('eval/avg_episode_length', n_steps / n_episodes, self.learn_env_steps)
+                            # self.log_history('eval/time', eval_time, self.learn_env_steps)
+                            # self.log_history('eval/fps', eval_fps, self.learn_env_steps)
+                            worker = threading.Thread(target=evaluation_worker)
+                            
+                            worker.start()
                         else:
                             self.avg_eval_rwd = self.evaluate(n_episodes=10)
+
+                        self.log_history('eval/avg_reward', self.avg_eval_rwd, self.learn_env_steps)
                         
                         init_train_time = time.thread_time_ns()
                         pbar.update(self.log_interval)
                     if self.use_threaded_eval:
                         stop_event.set()
-                    # worker.join()
+
                 if done:
                     self.log_history("rollout/ep_reward", self.rollout_reward, self.learn_env_steps)
                     self.log_history("rollout/avg_episode_length", avg_ep_len, self.learn_env_steps)
@@ -259,10 +279,8 @@ class BaseAgent:
         avg_reward /= n_episodes
         eval_fps = n_steps / eval_time
         self.eval_time = eval_time
-        self.log_history('eval/avg_reward', avg_reward, self.learn_env_steps)
-        self.log_history('eval/avg_episode_length', n_steps / n_episodes, self.learn_env_steps)
-        self.log_history('eval/time', eval_time, self.learn_env_steps)
-        self.log_history('eval/fps', eval_fps, self.learn_env_steps)
+        self.avg_eval_rwd = avg_reward
+
         for callback in self.eval_callbacks:
             callback(self, end=True)
         return avg_reward
