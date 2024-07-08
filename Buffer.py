@@ -1,5 +1,6 @@
 from typing import Optional, Union, Tuple
 import threading
+import multiprocessing as mp
 
 import numpy as np
 import torch as th
@@ -76,13 +77,33 @@ class Buffer:
         self.done_handlers = done_handlers
         self.preload_sample = True
         self.preloaded_sample = None
+        self.preload_done = False
+        self.proc = None
+        self.n_missed_preloads = 0
 
-    def _preload(self, batch_size):
-        self.preloaded_sample = self.sample(batch_size, preloading=True)
+    def _preload(self, batch_size, queue):
+        preloaded_sample = self._sample(batch_size)
+        queue.put(preloaded_sample)
 
     def preload(self, batch_size):
-        worker = threading.Thread(target=self._preload, args=(batch_size,))
-        worker.start()
+        def preload_worker():
+            queue = mp.Queue()
+            self.proc = mp.Process(target=self._preload, args=(batch_size,queue))
+            self.proc.start()
+            # self._preload(batch_size, queue)
+            self.preloaded_sample = queue.get()
+            self.preload_done = True
+            # print("Preloading done")
+            self.proc.join()
+            self.proc = None
+            # print("joined")
+        if self.proc is not None:
+            # print(f"previous preloading still running {self.n_missed_preloads}")
+            self.n_missed_preloads += 1
+        else:
+            self.n_missed_preloads = 0
+            worker = threading.Thread(target=preload_worker)
+            worker.start()
 
     def clear(self):
         self.states =  np.empty((self.buffer_size, *self.state_shape),  dtype=self.state_dtype)
@@ -105,6 +126,46 @@ class Buffer:
         if done:
             self._handle_done()
 
+    @staticmethod
+    def to_device(batch, device):
+        return [th.from_numpy(x).to(device) for x in batch]
+
+    def _sample(self, batch_size):
+        # since the s' is not valid where s is done, we need to use
+        idxs_done = np.where(self.dones)[0]
+        idxs_all = np.arange(self.n_stored)
+        idxs_valid = np.setdiff1d(idxs_all, idxs_done)
+        idx = np.random.choice(idxs_valid, batch_size)
+        return (self.states[idx],
+                self.actions[idx],
+                self.rewards[idx],
+                self.states[idx + 1],
+                self.dones[idx],)
+
+    def sample(self, batch_size):
+        if self.preload_done:
+            # get the preloaded sample and start preloading the next one
+            self.preload_done = False
+            self.preload(batch_size)
+            return Buffer.to_device(self.preloaded_sample, self.device)
+        else:
+            # print('preloading not ready, preparing for the next time')
+            self.preload(batch_size)
+        return Buffer.to_device(self._sample(batch_size), self.device)
+
+    def _handle_done(self):
+        for handler, h_kwargs in self.done_handlers:
+            handler(self, **h_kwargs)
+
+
+class TDBuffer(Buffer):
+    def __init__(self, *args,  td_steps:int=1 ,**kwargs):
+        super().__init__(*args, **kwargs)
+        """
+        :param td_steps: int - number of steps to look ahead for TD learning
+        """
+        self.td_steps = td_steps
+
     def sample(self, batch_size, preloading=False):
         if not preloading and self.preloaded_sample is not None:
             # print('Preloaded sample')
@@ -114,14 +175,3 @@ class Buffer:
             self.preloaded_sample = None
             self._preload(batch_size)
         idx = np.random.randint(low=0,high=self.n_stored, size=(batch_size,))
-        # todo: valid next state indexing
-        # todo: td sampling
-        return (th.from_numpy(self.states [idx],    ).to(self.device),
-                th.from_numpy(self.actions[idx],    ).to(self.device),
-                th.from_numpy(self.rewards[idx],    ).to(self.device),
-                th.from_numpy(self.states [idx + 1],).to(self.device),
-                th.from_numpy(self.dones  [idx],    ).to(self.device))
-
-    def _handle_done(self):
-        for handler, h_kwargs in self.done_handlers:
-            handler(self, **h_kwargs)

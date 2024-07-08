@@ -2,7 +2,6 @@ import os
 import time
 import numpy as np
 import torch
-from stable_baselines3.common.buffers import ReplayBuffer
 import gymnasium as gym
 from typing import Optional, Union, Tuple, List
 from typeguard import typechecked
@@ -36,6 +35,7 @@ class AUCCallback(EvalCallback):
             return
         self.auc += reward
 
+
 class BaseAgent:
     @typechecked
     def __init__(self,
@@ -68,6 +68,7 @@ class BaseAgent:
         }
         self.learn_env_steps = 0
         self.tot_env_steps = 0
+        self.tot_learn_env_steps = 0
         self.kwargs = get_new_params(None, locals())
         self.env, self.eval_env = env_id_to_envs(env_id, render)
 
@@ -164,6 +165,7 @@ class BaseAgent:
         # Start a timer to log fps:
         init_train_time = time.thread_time_ns()
         self.learn_env_steps = 0
+        self.tot_learn_env_steps = 0
 
         while self.learn_env_steps < total_timesteps:
             state, _ = self.env.reset()

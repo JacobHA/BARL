@@ -73,7 +73,7 @@ class SoftQAgent(BaseAgent):
 
     def evaluation_policy(self, state: np.ndarray) -> int:
         # Get the greedy action from the q values:
-        qvals = self.online_softqs(torch.from_numpy(state)).to(device=self.device)
+        qvals = self.online_softqs(torch.from_numpy(state).to(device=self.device))
         qvals = qvals.squeeze()
         return torch.argmax(qvals).item()
     
@@ -120,7 +120,8 @@ if __name__ == '__main__':
     env = gym.make('CartPole-v1')
     logger = TensorboardLogger('logs/cartpole')
     #logger = WandBLogger(entity='jacobhadamczyk', project='test')
-    mlp = make_mlp(env.unwrapped.observation_space.shape[0], env.unwrapped.action_space.n, hidden_dims=[32, 32])
+    device = 'cuda' if torch.cuda.is_available() else 'cpu'
+    mlp = make_mlp(env.unwrapped.observation_space.shape[0], env.unwrapped.action_space.n, hidden_dims=[32, 32], device=device)
     agent = SoftQAgent(env,
                        architecture=mlp, 
                        loggers=(logger,),

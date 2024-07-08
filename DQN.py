@@ -6,6 +6,7 @@ from Architectures import make_mlp
 from BaseAgent import BaseAgent, get_new_params
 from utils import polyak
 
+
 class DQN(BaseAgent):
     def __init__(self,
                  *args,
