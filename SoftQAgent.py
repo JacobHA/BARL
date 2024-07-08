@@ -81,7 +81,7 @@ class SoftQAgent(BaseAgent):
             qvals = self.online_softqs(state).to(device=self.device) + 1 / self.beta * self.log_pi0
             qvals = qvals.squeeze()
             return torch.argmax(qvals).item()
-        
+
 
     def calculate_loss(self, batch):
         states, actions, rewards, next_states, dones = batch
@@ -104,7 +104,7 @@ class SoftQAgent(BaseAgent):
         # Calculate the softq ("critic") loss:
         loss = 0.5*torch.nn.functional.mse_loss(curr_softq, expected_curr_softq)
         # loss += 0.005*torch.nn.functional.mse_loss(curr_softq, curr_softq.detach())
-        
+
         self.log_history("train/online_q_mean", curr_softq.mean().item(), self.learn_env_steps)
         # log the loss:
         self.log_history("train/loss", loss.item(), self.learn_env_steps)
@@ -125,7 +125,8 @@ if __name__ == '__main__':
     env = gym.make('Acrobot-v1')
     logger = TensorboardLogger('logs/acro')
     #logger = WandBLogger(entity='jacobhadamczyk', project='test')
-    mlp = make_mlp(env.unwrapped.observation_space.shape[0], env.unwrapped.action_space.n, hidden_dims=[32, 32])
+    device = 'cuda' if torch.cuda.is_available() else 'cpu'
+    mlp = make_mlp(env.unwrapped.observation_space.shape[0], env.unwrapped.action_space.n, hidden_dims=[32, 32], device=device)
     agent = SoftQAgent(env,
                        architecture=mlp, 
                        loggers=(logger,),
