@@ -4,7 +4,8 @@ import numpy as np
 import torch
 
 from Architectures import make_mlp
-from BaseAgent import BaseAgent, get_new_params, AUCCallback
+from BaseAgent import BaseAgent, get_new_params
+from callbacks import AUCCallback
 from utils import polyak
 from Logger import WandBLogger, TensorboardLogger
 
