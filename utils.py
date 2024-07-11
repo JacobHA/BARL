@@ -96,29 +96,6 @@ def find_torch_modules(module, modules=None, prefix=None):
 
     return modules
 
-def polyak(target_nets, online_nets, tau):
-    tau = 1 - tau
-    """
-    Perform a Polyak (exponential moving average) update for target networks.
-
-    Args:
-        online_nets (list): A list of online networks whose parameters will be used for the update.
-        tau (float): The update rate, typically between 0 and 1.
-
-    Raises:
-        ValueError: If the number of online networks does not match the number of target networks.
-    """
-    with torch.no_grad():
-        # zip does not raise an exception if length of parameters does not match.
-        for new_params, target_params in zip(online_nets.parameters(), target_nets.parameters()):
-            # for new_param, target_param in zip_strict(new_params, target_params):
-            #     target_param.data.mul_(tau).add_(new_param.data, alpha=1.0-tau)
-            #TODO: Remove dependency on stable_baselines3 by using in-place ops as above.
-            # zip does not raise an exception if length of parameters does not match.
-            for param, target_param in zip_strict(new_params, target_params):
-                target_param.data.mul_(1 - tau)
-                torch.add(target_param.data, param.data, alpha=tau, out=target_param.data)
-
 
 def auto_device(device: Union[torch.device, str] = 'auto'):
     if device == 'auto':
@@ -199,3 +176,47 @@ def atari_env_id_to_envs(env_id, render, n_envs, frameskip=1, framestack_k=None,
         eval_env = copy.deepcopy(env_id)
 
     return env, eval_env
+
+
+def polyak(target_nets, online_nets, tau, device):
+    """
+    Perform a Polyak (exponential moving average) update for target networks.
+
+    Args:
+        online_nets (list): A list of online networks whose parameters will be used for the update.
+        tau (float): The update rate, typically between 0 and 1.
+    Returns:
+        None: operations are performed in-place.
+    """
+    # Thanks to m-rph at
+    # https://github.com/DLR-RM/stable-baselines3/issues/93
+    # for the fix to this function. Looks like correct device and addcmul are quite helpful.
+    # The only addition is the strict kwarg
+    one = torch.ones(1, requires_grad=False).to(device)
+    for param, target_param in zip(online_nets.parameters(), target_nets.parameters(), strict=True):
+        target_param.data.mul_(1 - tau)
+        target_param.data.addcmul_(param.data, one, value=tau)
+
+
+# def polyak(target_nets, online_nets, tau):
+#     tau = 1 - tau
+#     """
+#     Perform a Polyak (exponential moving average) update for target networks.
+
+#     Args:
+#         online_nets (list): A list of online networks whose parameters will be used for the update.
+#         tau (float): The update rate, typically between 0 and 1.
+
+#     Raises:
+#         ValueError: If the number of online networks does not match the number of target networks.
+#     """
+#     with torch.no_grad():
+#         # zip does not raise an exception if length of parameters does not match.
+#         for new_params, target_params in zip(online_nets.parameters(), target_nets.parameters()):
+#             # for new_param, target_param in zip_strict(new_params, target_params):
+#             #     target_param.data.mul_(tau).add_(new_param.data, alpha=1.0-tau)
+#             #TODO: Remove dependency on stable_baselines3 by using in-place ops as above.
+#             # zip does not raise an exception if length of parameters does not match.
+#             for param, target_param in zip_strict(new_params, target_params):
+#                 target_param.data.mul_(1 - tau)
+#                 torch.add(target_param.data, param.data, alpha=tau, out=target_param.data)

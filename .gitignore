@@ -6,3 +6,5 @@ __pycache__
 logs
 *.png
 *.prof
+*.sh
+.pytest_cache

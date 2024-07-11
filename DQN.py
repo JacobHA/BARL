@@ -24,7 +24,7 @@ class DQN(BaseAgent):
         super().__init__(*args, **kwargs)
         self.kwargs = get_new_params(self, locals())
         
-        self.algo_name = 'SQL'
+        self.algo_name = 'DQN'
         self.gamma = gamma
         self.minimum_epsilon = minimum_epsilon
         self.exploration_fraction = exploration_fraction
@@ -67,7 +67,9 @@ class DQN(BaseAgent):
         super()._on_step()
 
         # Update epsilon:
-        self.epsilon = max(self.minimum_epsilon, (self.initial_epsilon - self.learn_env_steps / self.total_timesteps / self.exploration_fraction))
+        self.epsilon = max(self.minimum_epsilon, 
+                           (self.initial_epsilon - 
+                            self.learn_env_steps / self.total_timesteps / self.exploration_fraction))
 
         if self.learn_env_steps % self.log_interval == 0:
             self.log_history("train/epsilon", self.epsilon, self.learn_env_steps)
@@ -75,7 +77,7 @@ class DQN(BaseAgent):
         # Periodically update the target network:
         if self.use_target_network and self.learn_env_steps % self.target_update_interval == 0:
             # Use Polyak averaging as specified:
-            polyak(self.online_qs, self.target_qs, self.polyak_tau)
+            polyak(self.online_qs, self.target_qs, self.polyak_tau, self.device)
 
 
     def exploration_policy(self, state: np.ndarray) -> int:
@@ -98,6 +100,7 @@ class DQN(BaseAgent):
         dones = dones.float()
         curr_q = self.online_qs(states).squeeze().gather(1, actions.long())
         with torch.no_grad():
+            # TODO: push this into pre-processing to clean up the agent code:
             if isinstance(self.env.observation_space, gymnasium.spaces.Discrete):
                 states = states.squeeze()
                 next_states = next_states.squeeze()
@@ -115,7 +118,7 @@ class DQN(BaseAgent):
         
         self.log_history("train/online_q_mean", curr_q.mean().item(), self.learn_env_steps)
         # log the loss:
-        logger.log_history("train/loss", loss.item(), self.learn_env_steps)
+        self.log_history("train/loss", loss.item(), self.learn_env_steps)
 
         return loss
 
@@ -126,25 +129,25 @@ if __name__ == '__main__':
 
     from Logger import WandBLogger, TensorboardLogger
     logger = TensorboardLogger('logs/atari')
-    #logger = WandBLogger(entity='jacobhadamczyk', project='test')
-    # mlp = make_mlp(env.unwrapped.observation_space.shape[0], env.unwrapped.action_space.n, hidden_dims=[32, 32])#, activation=torch.nn.Mish)
-    # cnn = make_atari_nature_cnn(gym.make(env).action_space.n)
+
     env = 'CartPole-v1'
     agent = DQN(env, 
                 architecture=make_mlp,
                 architecture_kwargs={'input_dim': gym.make(env).observation_space.shape[0],
                                      'output_dim': gym.make(env).action_space.n,
                                      'hidden_dims': [64, 64]},
+                # architecture=make_atari_nature_cnn,
+                # architecture_kwargs={'output_dim': gym.make(env).action_space.n},
                 loggers=(logger,),
                 learning_rate=0.001,
                 train_interval=1,
                 gradient_steps=1,
                 batch_size=64,
-                use_target_network=True,
-                target_update_interval=10,
-                polyak_tau=1.0,
-                learning_starts=1000,
-                log_interval=500,
-
+                use_target_network=False,
+                # target_update_interval=10,
+                # polyak_tau=0.0,
+                learning_starts=100,
+                log_interval=200,
+                use_threaded_eval=False,
                 )
-    agent.learn(total_timesteps=60_000)
+    agent.learn(total_timesteps=100_000)
