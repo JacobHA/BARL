@@ -2,7 +2,6 @@ import os
 import time
 import numpy as np
 import torch
-from stable_baselines3.common.buffers import ReplayBuffer
 import gymnasium as gym
 from typing import Optional, Union, Tuple, List
 import tqdm
@@ -19,6 +18,22 @@ def get_new_params(base_cls_obj, locals):
     base_class_kwargs = {} if base_cls_obj is None else base_cls_obj.kwargs
 
     return {**locals, **base_class_kwargs}
+
+
+class EvalCallback:
+    def __init__(self, agent: 'BaseAgent'):
+        self.agent = agent
+
+
+class AUCCallback(EvalCallback):
+    def __init__(self, agent: 'BaseAgent'):
+        super().__init__(agent)
+        self.auc = 0
+    def __call__(self, state=None, action=None, reward=None, done=None, end=False):
+        if end:
+            self.agent.log_history('eval/auc', self.auc, self.agent.learn_env_steps)
+            return
+        self.auc += reward
 
 
 class BaseAgent:
@@ -52,7 +67,8 @@ class BaseAgent:
             'train/lr': 'learning_rate',
         }
         self.learn_env_steps = 0
-        self.total_env_steps = 0
+        self.tot_env_steps = 0
+        self.tot_learn_env_steps = 0
         self.kwargs = get_new_params(None, locals())
         is_atari = False
         permute_dims = False
@@ -156,8 +172,7 @@ class BaseAgent:
         # Start a timer to log fps:
         init_train_time = time.thread_time_ns()
         self.learn_env_steps = 0
-        self.total_timesteps = total_timesteps
-
+        self.tot_learn_env_steps = total_timesteps
         with tqdm.tqdm(total=total_timesteps, desc="Training") as pbar:
 
             while self.learn_env_steps < total_timesteps:
@@ -204,7 +219,7 @@ class BaseAgent:
         This method is called after every step in the environment
         """
         self.learn_env_steps += 1
-        self.total_env_steps += 1
+        self.tot_env_steps += 1
 
         if self.train_this_step:
             if self.learn_env_steps > self.learning_starts:

@@ -9,8 +9,8 @@ import sys
 sys.path.append('./')
 from utils import sample_wandb_hyperparams
 
-class TestSampleWandbHyperparams(unittest.TestCase):
 
+class TestSampleWandbHyperparams(unittest.TestCase):
     @patch('random.choice')
     @patch('random.uniform')
     @patch('random.normalvariate')

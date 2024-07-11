@@ -1,5 +1,6 @@
 import gymnasium as gym
 import sys
+import tqdm
 
 import numpy as np
 from stable_baselines3.common.buffers import ReplayBuffer
@@ -10,7 +11,8 @@ from BaseAgent import BaseAgent, get_new_params, AUCCallback
 from Logger import WandBLogger, TensorboardLogger
 from SoftQAgent import SoftQAgent
 
-
+import multiprocessing as mp
+mp.set_start_method('spawn', force=True)
 env = gym.make('CartPole-v1')
 logger = TensorboardLogger('logs/cartpole')
 
@@ -70,14 +72,15 @@ sb3_buff_agent.buffer = SB3_Buff_Adapter(ReplayBuffer(
 ))
 
 import time
+
 times = []
-for i in range(10):
+for i in tqdm.tqdm(range(10), "barl buffer training"):
     start = time.time()
     agent.learn(total_timesteps=5000)
     times.append(time.time() - start)
 print(f"Custom buffer time: {np.mean(times)}, std {np.std(times)}",)
 times = []
-for i in range(10):
+for i in tqdm.tqdm(range(10), "sb3 buffer training"):
     start = time.time()
     sb3_buff_agent.learn(total_timesteps=5000)
     times.append(time.time() - start)
