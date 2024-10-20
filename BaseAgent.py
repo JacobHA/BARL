@@ -169,7 +169,7 @@ class BaseAgent:
                     self.log_history('eval/avg_episode_length',avg_n_steps, self.learn_env_steps)
                     self.log_history('eval/time', eval_time, self.learn_env_steps)
                     self.log_history('eval/fps', eval_fps, self.learn_env_steps)
-                    # stop_event.wait(10)
+                    stop_event.wait(0.01)                    
 
             worker = threading.Thread(target=evaluation_worker)
             worker.start()
@@ -214,9 +214,13 @@ class BaseAgent:
                         train_fps = self.log_interval / train_time
                         self.log_history('time/train_fps', train_fps, self.learn_env_steps)
                         if self.use_threaded_eval:
-                            # Restart the worker:
-                            self.avg_eval_rwd = worker.join()
-                            # worker = threading.Thread(target=self.evaluate, args=(10,))
+                            # collect worker stats and restart it:
+                            worker.join()
+                            stop_event.clear()
+                            worker = threading.Thread(target=evaluation_worker)
+                            worker.start()
+
+                            
                         else:
                             self.avg_eval_rwd, avg_n_steps, eval_fps, eval_time= self.evaluate(n_episodes=10)
                             self.log_history('eval/avg_reward', self.avg_eval_rwd, self.learn_env_steps)
