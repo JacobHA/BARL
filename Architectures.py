@@ -31,7 +31,7 @@ class MLP(nn.Module):
         if output_activation is not None:
             self.fc_layers.append(output_activation())
 
-        self.fc_layers = nn.Sequential(*self.fc_layers, device=self.device)
+        self.fc_layers = nn.Sequential(*self.fc_layers)
         
 
     def forward(self, x):
@@ -77,10 +77,10 @@ def preprocess_obs(obs, device):
         return obs.float() / 255.0
     if len(obs.shape) == 4:
         # Change to (N, C, H, W) format
-        obs = obs.permute(0, 3, 1, 2).to(device)  
+        obs = obs.permute(0, 3, 1, 2)
 
         # Normalize pixel values to the range [0, 1]
-        return obs.float() / 255.0
+        obs = obs.float() / 255.0
     return obs.to(device=device)
 
 class AtariNatureCNN(nn.Module):
@@ -116,6 +116,7 @@ class AtariNatureCNN(nn.Module):
 
     def forward(self, x):
         x = preprocess_obs(x, device=self.device)  # Apply preprocessing
+        x = x.to(device=self.device)
         x = self.conv_layers(x)
         x = self.fc_layers(x)
         return x
