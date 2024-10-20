@@ -41,7 +41,7 @@ class BaseAgent:
                  save_checkpoints: bool = False,
                  seed: Optional[int] = None,
                  eval_callbacks: List[callable] = [],
-                 use_threaded_eval: bool = True,
+                 use_threaded_eval: bool = False,
                  ) -> None:
 
         self.LOG_PARAMS = {
@@ -99,12 +99,16 @@ class BaseAgent:
         self.fps = None
         self.train_this_step = False
 
-        self.buffer = Buffer(
-            buffer_size=buffer_size,
-            state=self.env.observation_space.sample(),
-            action=self.env.action_space.sample(),
-            device=device
-        )
+        # self.buffer = Buffer(
+        #     buffer_size=buffer_size,
+        #     state=self.env.observation_space.sample(),
+        #     action=self.env.action_space.sample(),
+        #     device=device
+        # )
+        self.buffer = ReplayBuffer(buffer_size, 
+                                   self.env.observation_space, 
+                                   self.env.action_space, 
+                                   device=device)
 
         self.eval_auc = 0
         self.num_episodes = 0
@@ -160,7 +164,11 @@ class BaseAgent:
             stop_event = threading.Event()
             def evaluation_worker():
                 while not stop_event.is_set():
-                    self.evaluate(n_episodes=10)
+                    avg_reward, avg_n_steps, eval_fps, eval_time = self.evaluate(n_episodes=10)
+                    self.log_history('eval/avg_reward', avg_reward, self.learn_env_steps)
+                    self.log_history('eval/avg_episode_length',avg_n_steps, self.learn_env_steps)
+                    self.log_history('eval/time', eval_time, self.learn_env_steps)
+                    self.log_history('eval/fps', eval_fps, self.learn_env_steps)
                     # stop_event.wait(10)
 
             worker = threading.Thread(target=evaluation_worker)
@@ -198,7 +206,8 @@ class BaseAgent:
                     action = np.array([action])
                     state = np.array([state])
                     next_state = np.array([next_state])
-                    self.buffer.add(state, action, reward, terminated)
+                    reward = np.array([reward])
+                    self.buffer.add(state, next_state, action, reward, terminated, [infos])
                     state = next_state
                     if self.learn_env_steps % self.log_interval == 0:
                         train_time = (time.thread_time_ns() - init_train_time) / 1e9
@@ -209,16 +218,21 @@ class BaseAgent:
                             self.avg_eval_rwd = worker.join()
                             # worker = threading.Thread(target=self.evaluate, args=(10,))
                         else:
-                            self.avg_eval_rwd = self.evaluate(n_episodes=10)
+                            self.avg_eval_rwd, avg_n_steps, eval_fps, eval_time= self.evaluate(n_episodes=10)
+                            self.log_history('eval/avg_reward', self.avg_eval_rwd, self.learn_env_steps)
+                            self.log_history('eval/avg_episode_length', avg_n_steps, self.learn_env_steps)
+                            self.log_history('eval/time', eval_time, self.learn_env_steps)
+                            self.log_history('eval/fps', eval_fps, self.learn_env_steps)
                         
                         init_train_time = time.thread_time_ns()
                         pbar.update(self.log_interval)
                     if self.use_threaded_eval:
                         stop_event.set()
                     # worker.join()
-                if done:
-                    self.log_history("rollout/ep_reward", self.rollout_reward, self.learn_env_steps)
-                    self.log_history("rollout/avg_episode_length", avg_ep_len, self.learn_env_steps)
+                    if done:
+                        self.log_history("rollout/ep_reward", self.rollout_reward, self.learn_env_steps)
+                        self.log_history("rollout/avg_episode_length", avg_ep_len, self.learn_env_steps)
+                        
 
 
     def _on_step(self) -> None:
@@ -259,13 +273,10 @@ class BaseAgent:
         avg_reward /= n_episodes
         eval_fps = n_steps / eval_time
         self.eval_time = eval_time
-        self.log_history('eval/avg_reward', avg_reward, self.learn_env_steps)
-        self.log_history('eval/avg_episode_length', n_steps / n_episodes, self.learn_env_steps)
-        self.log_history('eval/time', eval_time, self.learn_env_steps)
-        self.log_history('eval/fps', eval_fps, self.learn_env_steps)
+        avg_n_steps = n_steps / n_episodes
         for callback in self.eval_callbacks:
             callback(self, end=True)
-        return avg_reward
+        return avg_reward, avg_n_steps, eval_fps, eval_time
 
     def save(self, path=None):
         if path is None:
