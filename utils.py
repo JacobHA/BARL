@@ -192,7 +192,7 @@ def polyak(target_nets, online_nets, tau, device):
     # https://github.com/DLR-RM/stable-baselines3/issues/93
     # for the fix to this function. Looks like correct device and addcmul are quite helpful.
     # The only addition is the strict kwarg
-    one = torch.ones(1, requires_grad=False).to(device)
+    one = torch.ones(1, requires_grad=False, device=device)
     for param, target_param in zip(online_nets.parameters(), target_nets.parameters(), strict=True):
         target_param.data.mul_(tau)
         target_param.data.addcmul_(param.data, one, value=1.0-tau)

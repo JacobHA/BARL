@@ -24,14 +24,14 @@ class MLP(nn.Module):
         self.fc_layers = []
         in_dim = input_dim
         for hidden_dim in hidden_dims:
-            self.fc_layers.append(nn.Linear(in_dim, hidden_dim).to(self.device))
+            self.fc_layers.append(nn.Linear(in_dim, hidden_dim, device=self.device))
             self.fc_layers.append(activation())
             in_dim = hidden_dim
-        self.fc_layers.append(nn.Linear(in_dim, output_dim).to(self.device))
+        self.fc_layers.append(nn.Linear(in_dim, output_dim, device=self.device))
         if output_activation is not None:
             self.fc_layers.append(output_activation())
 
-        self.fc_layers = nn.Sequential(*self.fc_layers).to(self.device)
+        self.fc_layers = nn.Sequential(*self.fc_layers, device=self.device)
         
 
     def forward(self, x):
@@ -97,7 +97,7 @@ class AtariNatureCNN(nn.Module):
             nn.Conv2d(64, 64, kernel_size=3, stride=1, device=self.device),
             activation(),
             nn.Flatten(start_dim=1)
-        ).to(self.device)
+        )
 
         # Calculate resulting shape for FC layers:
         with torch.no_grad():
@@ -116,7 +116,6 @@ class AtariNatureCNN(nn.Module):
 
     def forward(self, x):
         x = preprocess_obs(x, device=self.device)  # Apply preprocessing
-        x = x.to(self.device)
         x = self.conv_layers(x)
         x = self.fc_layers(x)
         return x
