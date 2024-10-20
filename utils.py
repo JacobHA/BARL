@@ -194,8 +194,8 @@ def polyak(target_nets, online_nets, tau, device):
     # The only addition is the strict kwarg
     one = torch.ones(1, requires_grad=False).to(device)
     for param, target_param in zip(online_nets.parameters(), target_nets.parameters(), strict=True):
-        target_param.data.mul_(1 - tau)
-        target_param.data.addcmul_(param.data, one, value=tau)
+        target_param.data.mul_(tau)
+        target_param.data.addcmul_(param.data, one, value=1.0-tau)
 
 
 # def polyak(target_nets, online_nets, tau):
