@@ -89,11 +89,16 @@ class DQN(BaseAgent):
         # Get the greedy action from the q values:
         qvals = self.online_qs(state)
         qvals = qvals.squeeze()
-        return torch.argmax(qvals).item()
+        return torch.argmax(qvals).cpu().item()
     
 
     def calculate_loss(self, batch):
-        states, actions, rewards, next_states, dones = batch
+        # states, actions, rewards, next_states, dones = batch
+        states = batch.observations
+        actions = batch.actions
+        next_states = batch.next_observations
+        dones = batch.dones
+        rewards = batch.rewards
         actions = actions.long()
         dones = dones.float()
         curr_q = self.online_qs(states).squeeze().gather(1, actions.long())
@@ -136,15 +141,17 @@ if __name__ == '__main__':
                 architecture=make_atari_nature_cnn,
                 architecture_kwargs={'output_dim': gym.make(env).action_space.n},
                 loggers=(logger,),
-                learning_rate=0.001,
+                learning_rate=0.0001,
                 train_interval=4,
                 gradient_steps=4,
                 batch_size=64,
                 use_target_network=True,
                 target_update_interval=1_000,
                 polyak_tau=1.0,
-                learning_starts=5_000,
-                log_interval=2000,
+                learning_starts=50_000,
+                log_interval=5000,
+                use_threaded_eval=True,
+
 
                 )
-    agent.learn(total_timesteps=100_000)
+    agent.learn(total_timesteps=10_000_000)
