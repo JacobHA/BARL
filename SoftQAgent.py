@@ -85,7 +85,13 @@ class SoftQAgent(BaseAgent):
         
 
     def calculate_loss(self, batch):
-        states, actions, rewards, next_states, dones = batch
+        # states, actions, next_states, dones, rewards = batch
+        states = batch.observations
+        actions = batch.actions
+        next_states = batch.next_observations
+        dones = batch.dones
+        rewards = batch.rewards
+        
         actions = actions.long()
         dones = dones.float()
         curr_softq = self.online_softqs(states).squeeze().gather(1, actions)
@@ -96,7 +102,7 @@ class SoftQAgent(BaseAgent):
 
             next_softqs = self.target_softqs(next_states)
             
-            next_v = 1/self.beta * (torch.logsumexp(self.beta * next_softqs, dim=-1) + self.log_pi0)
+            next_v = 1/self.beta * (torch.logsumexp(self.beta * next_softqs + self.log_pi0, dim=-1) )
             next_v = next_v.reshape(-1, 1)
 
             # Backup equation:
@@ -104,7 +110,6 @@ class SoftQAgent(BaseAgent):
 
         # Calculate the softq ("critic") loss:
         loss = 0.5*torch.nn.functional.mse_loss(curr_softq, expected_curr_softq)
-        # loss += 0.005*torch.nn.functional.mse_loss(curr_softq, curr_softq.detach())
         
         self.log_history("train/online_q_mean", curr_softq.mean().item(), self.learn_env_steps)
         # log the loss:
@@ -126,17 +131,19 @@ if __name__ == '__main__':
     env = gym.make('CartPole-v1')
     logger = TensorboardLogger('logs/cartpole')
     #logger = WandBLogger(entity='jacobhadamczyk', project='test')
-    mlp = make_mlp(env.unwrapped.observation_space.shape[0], env.unwrapped.action_space.n, hidden_dims=[32, 32])
+    mlp = make_mlp(env.unwrapped.observation_space.shape[0], env.unwrapped.action_space.n, hidden_dims=[64, 64])
     agent = SoftQAgent(env,
                        architecture=mlp, 
                        loggers=(logger,),
-                       learning_rate=0.001,
-                       beta=0.05,
-                       train_interval=10,
-                       gradient_steps=4,
-                       batch_size=256,
+                       learning_rate=0.016,
+                       learning_starts=0,
+                       gamma=0.99,
+                       beta=0.02,
+                       train_interval=2,
+                       gradient_steps=16,
+                       batch_size=512,
                        use_target_network=True,
-                       target_update_interval=10,
+                       target_update_interval=1,
                        polyak_tau=1.0,
                        eval_callbacks=[AUCCallback],
                        )
