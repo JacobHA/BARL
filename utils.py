@@ -199,3 +199,16 @@ def atari_env_id_to_envs(env_id, render, n_envs, frameskip=1, framestack_k=None,
         eval_env = copy.deepcopy(env_id)
 
     return env, eval_env
+
+class SB3_Buff_Adapter:
+    def __init__(self, buffer):
+        self.buffer = buffer
+    def sample(self, batch_size):
+        states, actions, next_states, rewards, dones = self.buffer.sample(batch_size)
+        return states, actions, rewards, next_states, dones
+    def add(self, obs, action, reward, done):
+        next_obs = obs.copy()
+        infos = [{}] * len(obs)
+        self.buffer.add(obs,next_obs,action,reward,done,infos)
+    def __len__(self):
+        return len(self.buffer)
