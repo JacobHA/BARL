@@ -6,7 +6,6 @@ from Architectures import make_atari_nature_cnn, make_mlp
 from BaseAgent import BaseAgent, get_new_params
 from utils import polyak
 
-
 class DQN(BaseAgent):
     def __init__(self,
                  *args,
@@ -87,6 +86,10 @@ class DQN(BaseAgent):
 
     def evaluation_policy(self, state: np.ndarray) -> int:
         # Get the greedy action from the q values:
+        if isinstance(self.env.observation_space, gym.spaces.Discrete):
+            state = torch.nn.functional.one_hot(torch.tensor(state), self.env.observation_space.n).float()
+        else:
+            state = torch.tensor(state).float()
         qvals = self.online_qs(state)
         qvals = qvals.squeeze()
         return torch.argmax(qvals).item()
@@ -94,6 +97,13 @@ class DQN(BaseAgent):
 
     def calculate_loss(self, batch):
         states, actions, rewards, next_states, dones = batch
+        if isinstance(self.env.observation_space, gym.spaces.Discrete):
+            # One hot encode:
+            states = torch.nn.functional.one_hot(states.squeeze(), self.env.observation_space.n)
+            next_states = torch.nn.functional.one_hot(next_states.squeeze(), self.env.observation_space.n)
+            states = states.float()
+            next_states = next_states.float()
+
         actions = actions.long()
         dones = dones.float()
         curr_q = self.online_qs(states).squeeze().gather(1, actions.long())
@@ -122,14 +132,15 @@ class DQN(BaseAgent):
 
 if __name__ == '__main__':
     import gymnasium as gym
-    env = 'ALE/Pong-v5'
+    # env = 'ALE/Pong-v5'
 
     from Logger import WandBLogger, TensorboardLogger
-    logger = TensorboardLogger('logs/atari')
+    logger = TensorboardLogger('logs/cpole')
     #logger = WandBLogger(entity='jacobhadamczyk', project='test')
     # mlp = make_mlp(env.unwrapped.observation_space.shape[0], env.unwrapped.action_space.n, hidden_dims=[32, 32])#, activation=torch.nn.Mish)
     # cnn = make_atari_nature_cnn(gym.make(env).action_space.n)
     env = 'CartPole-v1'
+    env = 'FrozenLake-v1'
     agent = DQN(env, 
                 architecture=make_mlp,
                 architecture_kwargs={'input_dim': gym.make(env).observation_space.shape[0],
@@ -139,7 +150,7 @@ if __name__ == '__main__':
                 learning_rate=0.001,
                 train_interval=1,
                 gradient_steps=1,
-                batch_size=64,
+                batch_size=32,
                 use_target_network=True,
                 target_update_interval=10,
                 polyak_tau=1.0,
@@ -147,4 +158,4 @@ if __name__ == '__main__':
                 log_interval=500,
 
                 )
-    agent.learn(total_timesteps=60_000)
+    agent.learn(total_timesteps=100_000)
