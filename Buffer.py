@@ -44,11 +44,12 @@ class Buffer:
     def __init__(
             self,
             buffer_size: int = 20000,
-            state:Union[th.Tensor,np.ndarray]=None,
+            state:Union[th.Tensor,np.ndarray, np.int64]=None,
             action:Union[th.Tensor,np.ndarray,int,np.int64]=None,
             done_handlers:Tuple[DoneHandler, ...] = (),
             device:str='auto',
             preload_sample:bool=True,
+            seed=0
     ):
         """
         n_samples: int - number of samples to store
@@ -58,7 +59,7 @@ class Buffer:
         img_history_len: int - number of images to store for each sample
         done_handlers: List[Callable] - list of functions to call when an episode is done
         """
-        assert isinstance(state, th.Tensor) or isinstance(state, np.ndarray)
+        assert isinstance(state, th.Tensor) or isinstance(state, np.ndarray) or isinstance(state, int) or isinstance(state, np.int64)
         self.state_shape = state.shape
         self.state_dtype = state.dtype if isinstance(state, np.ndarray) else state.dtype
         self.action_shape = (1,) if isinstance(action, (int, np.integer))  else action.shape
@@ -72,13 +73,16 @@ class Buffer:
         self.done_handlers = done_handlers
         self.preload_sample = preload_sample
         self.preloaded_sample = None
+        # set the seed:
+        self.seed = seed
+        np.random.seed(self.seed)
 
     def _preload(self, batch_size):
         self.preloaded_sample = self.sample(batch_size, preloading=True)
 
     def preload(self, batch_size):
-        worker = threading.Thread(target=self._preload, args=(batch_size,))
-        worker.start()
+        self.worker = threading.Thread(target=self._preload, args=(batch_size,))
+        self.worker.start()
 
     def clear(self):
         self.states =  np.empty((self.buffer_size, *self.state_shape),  dtype=self.state_dtype)
@@ -102,20 +106,25 @@ class Buffer:
             self._handle_done()
 
     def sample(self, batch_size, preloading=False):
-        if not preloading and self.preloaded_sample is not None:
-            return self.preloaded_sample
+        # if not preloading and self.preloaded_sample is not None:
+        #     print('preloading 2')
+        #     return self.preloaded_sample
         if self.preload_sample and not preloading:
-            print('preloading not ready, preparing for the next time')
             self.preloaded_sample = None
             self._preload(batch_size)
+           
+        elif self.preloaded_sample is not None and not preloading:
+            self.worker.join()
+            return self.preloaded_sample
+
         idx = np.random.randint(low=0, high=self.n_stored-1, size=(batch_size,))
-        # todo: valid next state indexing
         # todo: td sampling
         return (th.from_numpy(self.states [idx],    ).to(self.device),
                 th.from_numpy(self.actions[idx],    ).to(self.device),
-                th.from_numpy(self.rewards[idx],    ).to(self.device),
                 th.from_numpy(self.states [idx + 1],).to(self.device),
-                th.from_numpy(self.dones  [idx],    ).to(self.device))
+                th.from_numpy(self.dones  [idx],    ).to(self.device),
+                th.from_numpy(self.rewards[idx],    ).to(self.device),
+        )
 
     def _handle_done(self):
         for handler, handler_kwargs in self.done_handlers:

@@ -62,7 +62,7 @@ class SoftQAgent(BaseAgent):
         self.optimizer = torch.optim.Adam(self.model.parameters(), lr=self.learning_rate)
 
         # TODO: allow for non uniform priors
-        self.log_pi0 = -torch.log(torch.tensor(self.nA))
+        self.log_pi0 = -torch.log(torch.tensor(self.nA, device=self.device))
 
     def exploration_policy(self, state: np.ndarray) -> int:
         with torch.no_grad():
@@ -79,19 +79,14 @@ class SoftQAgent(BaseAgent):
     def evaluation_policy(self, state: np.ndarray) -> int:
         # Get the greedy action from the q values:
         with torch.no_grad():
-            qvals = self.online_softqs(state).to(device=self.device) + 1 / self.beta * self.log_pi0
+            qvals = self.online_softqs(state) + 1 / self.beta * self.log_pi0
             qvals = qvals.squeeze()
             return torch.argmax(qvals).item()
         
 
     def calculate_loss(self, batch):
-        # states, actions, next_states, dones, rewards = batch
-        states = batch.observations
-        actions = batch.actions
-        next_states = batch.next_observations
-        dones = batch.dones
-        rewards = batch.rewards
-        
+        states, actions, next_states, dones, rewards = batch
+
         actions = actions.long()
         dones = dones.float()
         curr_softq = self.online_softqs(states).squeeze().gather(1, actions)
@@ -127,11 +122,16 @@ class SoftQAgent(BaseAgent):
 
 
 if __name__ == '__main__':
+    # set the seed:
+    torch.manual_seed(0)
+    np.random.seed(0)
+
     import gymnasium as gym
-    env = gym.make('CartPole-v1')
-    logger = TensorboardLogger('logs/cartpole')
+    env = gym.make('LunarLander-v2')
+    logger = TensorboardLogger('logs/lu')
     #logger = WandBLogger(entity='jacobhadamczyk', project='test')
-    mlp = make_mlp(env.unwrapped.observation_space.shape[0], env.unwrapped.action_space.n, hidden_dims=[64, 64])
+    mlp = make_mlp(env.unwrapped.observation_space.shape[0], env.unwrapped.action_space.n, hidden_dims=[64, 64],
+                   activation=torch.nn.ReLU)
     agent = SoftQAgent(env,
                        architecture=mlp, 
                        loggers=(logger,),
@@ -140,11 +140,13 @@ if __name__ == '__main__':
                        gamma=0.99,
                        beta=0.02,
                        train_interval=2,
-                       gradient_steps=16,
+                       gradient_steps=1,
                        batch_size=512,
-                       use_target_network=True,
+                       use_target_network=False,
                        target_update_interval=1,
                        polyak_tau=1.0,
                        eval_callbacks=[AUCCallback],
+                       use_threaded_eval=True,
+                       seed=0
                        )
-    agent.learn(total_timesteps=50000)
+    agent.learn(total_timesteps=500000)

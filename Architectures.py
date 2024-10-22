@@ -68,7 +68,8 @@ def make_cnn_sequential(input_dim, output_dim, hidden_dims=(32, 64), activation=
 def preprocess_obs(obs, device):
     if isinstance(obs, np.ndarray):
         obs = torch.from_numpy(obs)
-
+    if isinstance(obs, int):
+        obs = torch.tensor(obs)
     # Pixel observations
     if obs.dtype == torch.uint8:
         if len(obs.shape) == 3:

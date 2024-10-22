@@ -43,7 +43,12 @@ class BaseAgent:
                  eval_callbacks: List[callable] = [],
                  use_threaded_eval: bool = False,
                  ) -> None:
-
+        # seed the environment:
+        if seed is not None:
+            np.random.seed(seed)
+            torch.manual_seed(seed)
+            torch.cuda.manual_seed_all(seed)
+        self.seed = seed
         self.LOG_PARAMS = {
             'train/env. steps': 'env_steps',
             'eval/avg_reward': 'avg_eval_rwd',
@@ -99,16 +104,18 @@ class BaseAgent:
         self.fps = None
         self.train_this_step = False
 
-        # self.buffer = Buffer(
-        #     buffer_size=buffer_size,
-        #     state=self.env.observation_space.sample(),
-        #     action=self.env.action_space.sample(),
-        #     device=device
-        # )
-        self.buffer = ReplayBuffer(buffer_size, 
-                                   self.env.observation_space, 
-                                   self.env.action_space, 
-                                   device=device)
+        self.buffer = Buffer(
+            buffer_size=buffer_size,
+            state=self.env.observation_space.sample(),
+            action=self.env.action_space.sample(),
+            device=device,
+            preload_sample=False,
+            seed=seed
+        )
+        # self.buffer = ReplayBuffer(buffer_size, 
+        #                            self.env.observation_space, 
+        #                            self.env.action_space, 
+        #                            device=device)
 
         self.eval_auc = 0
         self.num_episodes = 0
@@ -182,7 +189,7 @@ class BaseAgent:
         with tqdm.tqdm(total=total_timesteps, desc="Training") as pbar:
 
             while self.learn_env_steps < total_timesteps:
-                state, _ = self.env.reset()
+                state, _ = self.env.reset()#seed=self.seed)
 
                 done = False
                 self.num_episodes += 1
@@ -207,7 +214,12 @@ class BaseAgent:
                     state = np.array([state])
                     next_state = np.array([next_state])
                     reward = np.array([reward])
-                    self.buffer.add(state, next_state, action, reward, terminated, [infos])
+                    if isinstance(self.buffer, ReplayBuffer):
+                        self.buffer.add(state, next_state, action, reward, terminated, [infos])
+
+                    elif isinstance(self.buffer, Buffer):
+                        self.buffer.add(state, action, reward, terminated)
+
                     state = next_state
                     if self.learn_env_steps % self.log_interval == 0:
                         train_time = (time.thread_time_ns() - init_train_time) / 1e9
@@ -261,7 +273,7 @@ class BaseAgent:
         n_steps = 0
         init_eval_time = time.process_time_ns()
         for ep in range(n_episodes):
-            state, _ = self.eval_env.reset()
+            state, _ = self.eval_env.reset()#seed=self.seed)
             done = False
             while not done:
                 action = self.evaluation_policy(state)
