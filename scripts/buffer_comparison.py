@@ -1,15 +1,17 @@
 import gymnasium as gym
 import sys
 import tqdm
+import time
 
 import numpy as np
 from stable_baselines3.common.buffers import ReplayBuffer
 
 sys.path.append('./')
 from Architectures import make_mlp
-from BaseAgent import BaseAgent, get_new_params, AUCCallback
+from BaseAgent import BaseAgent, get_new_params
 from Logger import WandBLogger, TensorboardLogger
 from SoftQAgent import SoftQAgent
+from callbacks import AUCCallback
 
 import multiprocessing as mp
 mp.set_start_method('spawn', force=True)
@@ -71,19 +73,19 @@ sb3_buff_agent.buffer = SB3_Buff_Adapter(ReplayBuffer(
     device=device,
 ))
 
-import time
 
-times = []
-for i in tqdm.tqdm(range(10), "barl buffer training"):
-    start = time.time()
-    agent.learn(total_timesteps=5000)
-    times.append(time.time() - start)
-print(f"Custom buffer time: {np.mean(times)}, std {np.std(times)}",)
-times = []
-for i in tqdm.tqdm(range(10), "sb3 buffer training"):
-    start = time.time()
-    sb3_buff_agent.learn(total_timesteps=5000)
-    times.append(time.time() - start)
-print(f"SB3 buffer time: {np.mean(times)}, std {np.std(times)}")
+if __name__ == '__main__':
+    times = []
+    for i in tqdm.tqdm(range(10), "barl buffer training"):
+        start = time.time()
+        agent.learn(total_timesteps=5000)
+        times.append(time.time() - start)
+    print(f"Custom buffer time: {np.mean(times)}, std {np.std(times)}",)
+    times = []
+    for i in tqdm.tqdm(range(10), "sb3 buffer training"):
+        start = time.time()
+        sb3_buff_agent.learn(total_timesteps=5000)
+        times.append(time.time() - start)
+    print(f"SB3 buffer time: {np.mean(times)}, std {np.std(times)}")
 
 
