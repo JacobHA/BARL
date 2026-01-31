@@ -51,8 +51,8 @@ class BaseAgent:
             'train/lr': 'learning_rate',
         }
         self.learn_env_steps = 0
-        self.tot_env_steps = 0
-        self.tot_learn_env_steps = 0
+        self.total_env_steps = 0
+        self.total_learn_env_steps = 0
         self.kwargs = get_new_params(None, locals())
         is_atari = False
         permute_dims = False
@@ -77,6 +77,7 @@ class BaseAgent:
         self.batch_size = batch_size
         
         self.loggers = loggers
+        self.algo_name = "BaseAgent"  # Override in subclasses
 
         self.gradient_steps = gradient_steps
         self.device = auto_device(device)
@@ -128,8 +129,14 @@ class BaseAgent:
 
     def calculate_loss(self, batch):
         raise NotImplementedError()
+    
+    def gradient_step(self, grad_step: int) -> None:
+        """
+        Perform a single gradient step on the agent's networks
+        """
+        raise NotImplementedError()
 
-    def _train(self, gradient_steps: int, batch_size: int) -> None:
+    def _train(self, gradient_steps) -> None:
         """
         Sample the replay buffer and do the updates
         (gradient descent and update target networks)
@@ -137,17 +144,9 @@ class BaseAgent:
         
         # Increase update counter
         self._n_updates += gradient_steps
-        for _ in range(gradient_steps):
-            # Sample a batch from the replay buffer:
-            batch = self.buffer.sample(batch_size)
-
-            loss = self.calculate_loss(batch)
-            self.optimizer.zero_grad()
-
-            # Clip gradient norm
-            loss.backward()
-            torch.nn.utils.clip_grad_norm_(self.model.parameters(), self.max_grad_norm)
-            self.optimizer.step()
+        for grad_step in range(gradient_steps):
+            self.gradient_step(grad_step)
+            
 
     def learn(self, total_timesteps: int):
         """
@@ -156,7 +155,7 @@ class BaseAgent:
         # Start a timer to log fps:
         init_train_time = time.thread_time_ns()
         self.learn_env_steps = 0
-        self.tot_learn_env_steps = total_timesteps
+        self.total_learn_env_steps = total_timesteps
         with tqdm.tqdm(total=total_timesteps, desc="Training") as pbar:
 
             while self.learn_env_steps < total_timesteps:
@@ -182,8 +181,6 @@ class BaseAgent:
 
                     # Add the transition to the replay buffer:
                     action = np.array([action])
-                    state = np.array([state])
-                    next_state = np.array([next_state])
                     self.buffer.add(state, action, reward, terminated)
                     state = next_state
                     if self.learn_env_steps % self.log_interval == 0:
@@ -197,17 +194,18 @@ class BaseAgent:
                 if done:
                     self.log_history("rollout/ep_reward", self.rollout_reward, self.learn_env_steps)
                     self.log_history("rollout/avg_episode_length", avg_ep_len, self.learn_env_steps)
+                    self.log_history("train/num. episodes", self.num_episodes, self.learn_env_steps)
 
     def _on_step(self) -> None:
         """
         This method is called after every step in the environment
         """
         self.learn_env_steps += 1
-        self.tot_env_steps += 1
+        self.total_env_steps += 1
 
         if self.train_this_step:
             if self.learn_env_steps > self.learning_starts:
-                self._train(self.gradient_steps, self.batch_size)
+                self._train(self.gradient_steps)
 
     def _log_stats(self):
         # Get the current learning rate from the optimizer:
