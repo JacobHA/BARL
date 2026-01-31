@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Run {{ run_id }} · BARL</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/main.css') }}" />
+  <script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
+</head>
+<body>
+  <div class="page">
+    <header class="header">
+      <div>
+        <h1>Run: {{ run_id }}</h1>
+        <p class="subtitle">{{ agent_class }} · {{ env_name }}</p>
+      </div>
+      <div class="header-actions">
+        <a class="btn" href="/">← Back to hub</a>
+        <button id="toggleAxisBtn" class="btn">Toggle X-Axis</button>
+      </div>
+    </header>
+
+    <div class="layout">
+      <aside class="sidebar">
+        <section class="panel">
+          <div class="panel-header">
+            <h2>Metrics</h2>
+          </div>
+          <input id="metricSearch" class="input" placeholder="Search metrics" />
+          <div id="metricList" class="metric-list"></div>
+        </section>
+
+        <section class="panel">
+          <div class="panel-header">
+            <h2>Notes</h2>
+            <button id="saveNotesBtn" class="btn btn-small">Save</button>
+          </div>
+          <textarea id="notesArea" class="textarea" rows="10" placeholder="Write notes for this run..."></textarea>
+        </section>
+
+        <section class="panel">
+          <div class="panel-header">
+            <h2>Hyperparameters</h2>
+          </div>
+          <details id="hparamsDetails" style="margin-top: 10px;">
+            <summary style="cursor: pointer; padding: 8px; background: #2d3748; border-radius: 4px; list-style: none; user-select: none;">
+              <span style="font-weight: 500;">▶ Show hyperparameters</span>
+            </summary>
+            <div id="hparamsList" style="margin-top: 10px; padding: 10px; background: #1a1f2e; border-radius: 4px; font-size: 13px; line-height: 1.6; max-height: 400px; overflow-y: auto;"></div>
+          </details>
+        </section>
+      </aside>
+
+      <main class="main">
+        <section class="panel">
+          <div class="panel-header">
+            <h2>Metrics Over Time</h2>
+            <div class="muted" id="axisLabel">X-Axis: Training Time</div>
+          </div>
+          <div id="mainPlot" class="plot"></div>
+        </section>
+      </main>
+    </div>
+  </div>
+
+  <script>
+    window.__RUN_ID__ = "{{ run_id }}";
+  </script>
+  <script src="{{ url_for('static', filename='js/run.js') }}"></script>
+</body>
+</html>
