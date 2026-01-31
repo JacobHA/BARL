@@ -81,7 +81,10 @@ class SoftQAgent(BaseAgent):
         with torch.no_grad():
             qvals = self.online_softqs(state).to(device=self.device) + 1 / self.beta * self.log_pi0
             qvals = qvals.squeeze()
-            return torch.argmax(qvals).item()
+            # return torch.argmax(qvals).item()
+            pi = torch.distributions.Categorical(logits = self.beta * qvals + self.log_pi0)
+            action = pi.sample()
+            return action.item()
 
 
     def calculate_loss(self, batch):
@@ -111,6 +114,18 @@ class SoftQAgent(BaseAgent):
         self.log_history("train/loss", loss.item(), self.learn_env_steps)
 
         return loss
+    
+    def gradient_step(self, grad_step):
+        # Sample a batch from the replay buffer:
+        batch = self.buffer.sample(self.batch_size)
+
+        loss = self.calculate_loss(batch)
+        self.optimizer.zero_grad()
+
+        # Clip gradient norm
+        loss.backward()
+        torch.nn.utils.clip_grad_norm_(self.model.parameters(), self.max_grad_norm)
+        self.optimizer.step()
 
     def _on_step(self) -> None:
         # Periodically update the target network:
@@ -123,7 +138,7 @@ class SoftQAgent(BaseAgent):
 
 if __name__ == '__main__':
     import gymnasium as gym
-    env = gym.make('Acrobot-v1')
+    env = gym.make('CartPole-v1')
     logger = TensorboardLogger('logs/acro')
     #logger = WandBLogger(entity='jacobhadamczyk', project='test')
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
@@ -132,7 +147,7 @@ if __name__ == '__main__':
                        architecture=mlp, 
                        loggers=(logger,),
                        learning_rate=0.001,
-                       beta=0.05,
+                       beta=5,
                        train_interval=10,
                        gradient_steps=4,
                        batch_size=256,
