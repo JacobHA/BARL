@@ -188,6 +188,26 @@ class DashboardGUI:
                     return jsonify({"notes": f.read()})
             return jsonify({"notes": ""})
 
+        @self.app.route("/api/runs/<path:run_id>/buffer_stats")
+        def api_run_buffer_stats(run_id: str):
+            # Load buffer statistics from history
+            data = self._load_history_from_run(run_id)
+            buffer_stats = {
+                "n_stored": data.get("buffer/n_stored", {}),
+                "terminated_fraction": data.get("buffer/terminated_fraction", {}),
+            }
+            # Load reward histogram
+            run_dir = self._run_dir_from_id(run_id)
+            if run_dir:
+                histogram_path = os.path.join(run_dir, "reward_histogram.json")
+                if os.path.exists(histogram_path):
+                    try:
+                        with open(histogram_path, "r") as f:
+                            buffer_stats["reward_histogram"] = json.load(f)
+                    except Exception:
+                        pass
+            return jsonify(buffer_stats)
+
         @self.app.route("/api/runs/<path:run_id>/hparams")
         def api_run_hparams(run_id: str):
             run_dir = self._run_dir_from_id(run_id)

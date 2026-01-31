@@ -188,6 +188,19 @@ class BaseAgent:
                         train_fps = self.log_interval / train_time
                         self.log_history('time/train_fps', train_fps, self.learn_env_steps)
                         self.avg_eval_rwd = self.evaluate()
+                        # Log buffer statistics
+                        if hasattr(self.buffer, 'calculate_statistics'):
+                            buffer_stats = self.buffer.calculate_statistics()
+                            self.log_history('buffer/n_stored', buffer_stats['n_stored'], self.learn_env_steps)
+                            self.log_history('buffer/terminated_fraction', buffer_stats['terminated_fraction'], self.learn_env_steps)
+                            # Save reward histogram to a separate file
+                            for logger in self.loggers:
+                                if hasattr(logger, 'run_dir') and logger.run_dir:
+                                    import json
+                                    histogram_path = os.path.join(logger.run_dir, 'reward_histogram.json')
+                                    with open(histogram_path, 'w') as f:
+                                        json.dump(buffer_stats['reward_histogram'], f)
+                                    break
                         init_train_time = time.thread_time_ns()
                         pbar.update(self.log_interval)
 
