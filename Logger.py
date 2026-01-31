@@ -1,5 +1,6 @@
 # Wandb, tensorboard, stdout, python logger
 from functools import lru_cache
+from time import time
 from torch.utils.tensorboard import SummaryWriter
 import logging
 import wandb
@@ -76,6 +77,13 @@ class TensorboardLogger(BaseLogger):
     def log_hparams(self, hparam_dict):
         for param, value in hparam_dict.items():
             self.writer.add_text(param, str(value), global_step=0)
+        # Also store them in the same folder that the logger uses:
+        with open(os.path.join(self.writer.log_dir, "hparams.txt"), "w") as f:
+            # On the first line, write the timestamp and name of the logger:
+            f.write(f"Timestamp: {time.time()}\nHyperparameters:\n")
+            for param, value in hparam_dict.items():
+                f.write(f"{param}: {value}\n")
+
     def log_history(self, param, value, step):
         self.writer.add_scalar(param, value, global_step=step)
     def log_video(self, video_path, name="video"):
