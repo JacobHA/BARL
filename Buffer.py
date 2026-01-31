@@ -105,22 +105,33 @@ class Buffer:
         self.states =  np.empty((self.buffer_size, *self.state_shape),  dtype=self.state_dtype)
         self.actions = np.empty((self.buffer_size, *self.action_shape), dtype=self.action_dtype)
         self.rewards = np.empty((self.buffer_size, 1), dtype=np.float32)
-        self.dones =   np.empty((self.buffer_size, 1), dtype=bool)
+        self.terminated =   np.empty((self.buffer_size, 1), dtype=bool)
         self.ep_start = 0
         self.ep_end = 0
         self.n_stored = 0
 
-    def add(self, state, action, reward, done):
+    def add(self, state, action, reward, terminated):
         self.states [self.ep_end] = state
         self.actions[self.ep_end] = action
         self.rewards[self.ep_end] = reward
-        self.dones  [self.ep_end] = done
+        self.terminated[self.ep_end] = terminated
         self.n_stored = min(self.buffer_size, self.n_stored + 1)
         self.ep_end += 1
         if self.ep_end == self.buffer_size:
             self.ep_end = 0
-        if done:
+        if terminated:
             self._handle_done()
+
+    def calculate_statistics(self):
+        # get the histogram for rewards:
+        rewards = self.rewards[:self.n_stored]
+        unique, counts = np.unique(rewards, return_counts=True)
+        reward_histogram = dict(zip(unique.tolist(), counts.tolist()))
+        return {'reward_histogram': reward_histogram,
+                'terminated_fraction': np.sum(self.terminated[:self.n_stored]) / self.n_stored,
+                'n_stored': self.n_stored,
+                'buffer_size': self.buffer_size,
+                }
 
     @staticmethod
     def to_device(batch, device):
@@ -128,15 +139,17 @@ class Buffer:
 
     def _sample(self, batch_size):
         # since the s' is not valid where s is done, we need to use
-        idxs_done = np.where(self.dones)[0]
+        idxs_done = np.where(self.terminated)[0]
         idxs_all = np.arange(self.n_stored)
         idxs_valid = np.setdiff1d(idxs_all, idxs_done)
-        idx = np.random.choice(idxs_valid, batch_size)
+        idx = np.random.choice(idxs_all, batch_size)
+        next_idx = (idx + 1) % self.buffer_size
+        # fix next idx if done
         return (self.states[idx],
                 self.actions[idx],
                 self.rewards[idx],
-                self.states[idx + 1],
-                self.dones[idx],)
+                self.states[next_idx],
+                self.terminated[idx],)
 
     def sample(self, batch_size):
         if self.preload_done:
