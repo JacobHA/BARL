@@ -1,13 +1,37 @@
 let selectedMetrics = new Set(['eval/avg_reward']);
 let metricsData = {};
 let xAxisMode = 'time';
+let lastDataUpdateTime = Date.now();
+let metricsInterval = null;
+let isRunActive = true;
+let trackUpdates = false; // When true, disable zoom preservation
 
 const runId = window.__RUN_ID__;
 
 async function fetchMetrics() {
   const res = await fetch(`/api/runs/${runId}/metrics`);
   const data = await res.json();
+  const oldDataStr = JSON.stringify(metricsData);
   metricsData = data.data || {};
+  const newDataStr = JSON.stringify(metricsData);
+  
+  // Check if data changed
+  if (oldDataStr !== newDataStr) {
+    lastDataUpdateTime = Date.now();
+    isRunActive = true;
+  } else {
+    // If no new data for 30 seconds, consider run inactive
+    if (Date.now() - lastDataUpdateTime > 30000 && isRunActive) {
+      isRunActive = false;
+      console.log('Run appears to be complete. Slowing down updates.');
+      // Clear fast interval and set slower one
+      if (metricsInterval) {
+        clearInterval(metricsInterval);
+        metricsInterval = setInterval(fetchMetrics, 10000); // Check every 10s instead
+      }
+    }
+  }
+  
   xAxisMode = data.x_axis_mode || 'time';
   renderMetricList(data.metrics || []);
   updatePlot();
@@ -104,7 +128,11 @@ function plotBufferStats(data) {
   
   const xTitle = xAxisMode === 'time' ? 'Training Time (s)' : 'Environment Steps';
   
-  Plotly.react('bufferPlot', traces, {
+  // Get current axis ranges if they exist (preserve zoom)
+  const bufferPlotDiv = document.getElementById('bufferPlot');
+  const preserveRange = !trackUpdates && bufferPlotDiv.layout && bufferPlotDiv.layout.xaxis && bufferPlotDiv.layout.xaxis.range;
+  
+  const layout = {
     paper_bgcolor: '#151821',
     plot_bgcolor: '#151821',
     font: { color: '#e6e8ee' },
@@ -119,12 +147,29 @@ function plotBufferStats(data) {
       titlefont: { color: '#f5c16c' },
       tickfont: { color: '#f5c16c' },
       overlaying: 'y',
-      side: 'right',
-      range: [0, 1]
+      side: 'right'
     },
     margin: { t: 20, l: 50, r: 50, b: 40 },
     legend: { orientation: 'h', y: 1.15 }
-  }, { responsive: true });
+  };
+  
+  // Preserve zoom/pan if user has interacted and tracking is off
+  if (preserveRange) {
+    layout.xaxis.range = bufferPlotDiv.layout.xaxis.range;
+    layout.yaxis.range = bufferPlotDiv.layout.yaxis.range;
+    if (bufferPlotDiv.layout.yaxis2 && bufferPlotDiv.layout.yaxis2.range) {
+      layout.yaxis2.range = bufferPlotDiv.layout.yaxis2.range;
+    } else {
+      layout.yaxis2.range = [0, 1];
+    }
+    layout.xaxis.autorange = false;
+    layout.yaxis.autorange = false;
+    layout.yaxis2.autorange = false;
+  } else {
+    layout.yaxis2.range = [0, 1];
+  }
+  
+  Plotly.react('bufferPlot', traces, layout, { responsive: true });
   
   // Plot reward histogram if available
   if (Object.keys(rewardHist).length > 0) {
@@ -147,7 +192,10 @@ function plotBufferStats(data) {
       width: 0.5  // Explicitly set bar width
     }];
     
-    // Create a new plot element for histogram if it doesn't exist
+
+    console.log('Plotting histogram with trace:', histTrace);
+    
+    // Create element first if needed
     let histPlot = document.getElementById('rewardHistPlot');
     if (!histPlot) {
       const panel = document.getElementById('bufferPlot').closest('.panel');
@@ -157,9 +205,11 @@ function plotBufferStats(data) {
       histPlot = document.getElementById('rewardHistPlot');
     }
     
-    console.log('Plotting histogram with trace:', histTrace);
+    // Get current axis ranges if they exist (preserve zoom)
+    const histPlotDiv = document.getElementById('rewardHistPlot');
+    const preserveRange = !trackUpdates && histPlotDiv.layout && histPlotDiv.layout.xaxis && histPlotDiv.layout.xaxis.range;
     
-    Plotly.react('rewardHistPlot', histTrace, {
+    const layout = {
       paper_bgcolor: '#151821',
       plot_bgcolor: '#151821',
       font: { color: '#e6e8ee' },
@@ -173,7 +223,17 @@ function plotBufferStats(data) {
       },
       margin: { t: 10, l: 60, r: 20, b: 40 },
       bargap: 0.2
-    }, { responsive: true });
+    };
+    
+    // Preserve zoom/pan if user has interacted and tracking is off
+    if (preserveRange) {
+      layout.xaxis.range = histPlotDiv.layout.xaxis.range;
+      layout.yaxis.range = histPlotDiv.layout.yaxis.range;
+      layout.xaxis.autorange = false;
+      layout.yaxis.autorange = false;
+    }
+    
+    Plotly.react('rewardHistPlot', histTrace, layout, { responsive: true });
     
     console.log('Histogram plot rendered');
   } else {
@@ -294,7 +354,11 @@ function updatePlot() {
     ? 'Training Time (s)'
     : (xAxisMode === 'steps' ? 'Environment Steps' : 'Episodes');
 
-  Plotly.react('mainPlot', traces, {
+  // Get current axis ranges if they exist (preserve zoom)
+  const mainPlotDiv = document.getElementById('mainPlot');
+  const preserveRange = !trackUpdates && mainPlotDiv.layout && mainPlotDiv.layout.xaxis && mainPlotDiv.layout.xaxis.range;
+  
+  const layout = {
     paper_bgcolor: '#151821',
     plot_bgcolor: '#151821',
     font: { color: '#e6e8ee' },
@@ -302,7 +366,17 @@ function updatePlot() {
     yaxis: { title: 'Value' },
     margin: { t: 30, l: 50, r: 20, b: 40 },
     legend: { orientation: 'h', y: 1.1 }
-  }, { responsive: true });
+  };
+  
+  // Preserve zoom/pan if user has interacted
+  if (preserveRange) {
+    layout.xaxis.range = mainPlotDiv.layout.xaxis.range;
+    layout.yaxis.range = mainPlotDiv.layout.yaxis.range;
+    layout.xaxis.autorange = false;
+    layout.yaxis.autorange = false;
+  }
+
+  Plotly.react('mainPlot', traces, layout, { responsive: true });
 }
 
 function formatBytes(bytes) {
@@ -319,6 +393,12 @@ function bindEvents() {
   });
   document.getElementById('saveNotesBtn').addEventListener('click', saveNotes);
   document.getElementById('toggleAxisBtn').addEventListener('click', toggleAxis);
+  document.getElementById('trackUpdatesBtn').addEventListener('click', () => {
+    trackUpdates = !trackUpdates;
+    const btn = document.getElementById('trackUpdatesBtn');
+    btn.textContent = trackUpdates ? 'Track Updates: ON' : 'Track Updates: OFF';
+    btn.style.backgroundColor = trackUpdates ? '#7ed3b2' : '';
+  });
 }
 
 createPlot();
@@ -326,4 +406,4 @@ bindEvents();
 fetchMetrics();
 fetchNotes();
 fetchHparams();
-setInterval(fetchMetrics, 2000);
+metricsInterval = setInterval(fetchMetrics, 2000);
