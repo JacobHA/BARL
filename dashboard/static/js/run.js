@@ -12,6 +12,8 @@ async function fetchMetrics() {
   renderMetricList(data.metrics || []);
   updatePlot();
   updateAxisLabel();
+  // Also fetch and plot buffer stats
+  fetchBufferStats();
 }
 
 async function fetchNotes() {
@@ -54,6 +56,129 @@ async function fetchHparams() {
       summary.textContent = '▶ Show hyperparameters';
     }
   });
+}
+
+async function fetchBufferStats() {
+  const res = await fetch(`/api/runs/${runId}/buffer_stats`);
+  const data = await res.json();
+  plotBufferStats(data);
+}
+
+function plotBufferStats(data) {
+  const nStored = data.n_stored || {};
+  const terminatedFrac = data.terminated_fraction || {};
+  const rewardHist = data.reward_histogram || {};
+  
+  const traces = [];
+  
+  if (nStored.steps && nStored.steps.length > 0) {
+    const xData = xAxisMode === 'time' ? nStored.times : nStored.steps;
+    traces.push({
+      x: xData,
+      y: nStored.values,
+      type: 'scatter',
+      mode: 'lines',
+      name: 'Buffer Size',
+      line: { width: 2, color: '#5b8cff' },
+      yaxis: 'y'
+    });
+  }
+  
+  if (terminatedFrac.steps && terminatedFrac.steps.length > 0) {
+    const xData = xAxisMode === 'time' ? terminatedFrac.times : terminatedFrac.steps;
+    traces.push({
+      x: xData,
+      y: terminatedFrac.values,
+      type: 'scatter',
+      mode: 'lines',
+      name: 'Terminated Fraction',
+      line: { width: 2, color: '#f5c16c' },
+      yaxis: 'y2'
+    });
+  }
+  
+  if (traces.length === 0 && Object.keys(rewardHist).length === 0) {
+    document.getElementById('bufferPlot').innerHTML = '<div style="padding: 20px; text-align: center; color: #888;">No buffer statistics available</div>';
+    return;
+  }
+  
+  const xTitle = xAxisMode === 'time' ? 'Training Time (s)' : 'Environment Steps';
+  
+  Plotly.react('bufferPlot', traces, {
+    paper_bgcolor: '#151821',
+    plot_bgcolor: '#151821',
+    font: { color: '#e6e8ee' },
+    xaxis: { title: xTitle },
+    yaxis: { 
+      title: 'Buffer Size',
+      titlefont: { color: '#5b8cff' },
+      tickfont: { color: '#5b8cff' }
+    },
+    yaxis2: {
+      title: 'Terminated Fraction',
+      titlefont: { color: '#f5c16c' },
+      tickfont: { color: '#f5c16c' },
+      overlaying: 'y',
+      side: 'right',
+      range: [0, 1]
+    },
+    margin: { t: 20, l: 50, r: 50, b: 40 },
+    legend: { orientation: 'h', y: 1.15 }
+  }, { responsive: true });
+  
+  // Plot reward histogram if available
+  if (Object.keys(rewardHist).length > 0) {
+    console.log('Reward histogram data:', rewardHist);
+    
+    // Keep original keys and sort by numeric value
+    const sortedEntries = Object.entries(rewardHist).sort((a, b) => Number(a[0]) - Number(b[0]));
+    const rewards = sortedEntries.map(e => Number(e[0]));
+    const counts = sortedEntries.map(e => e[1]);
+    
+    console.log('Processed rewards:', rewards);
+    console.log('Processed counts:', counts);
+    
+    const histTrace = [{
+      x: rewards,
+      y: counts,
+      type: 'bar',
+      name: 'Reward Histogram',
+      marker: { color: '#7ed3b2' },
+      width: 0.5  // Explicitly set bar width
+    }];
+    
+    // Create a new plot element for histogram if it doesn't exist
+    let histPlot = document.getElementById('rewardHistPlot');
+    if (!histPlot) {
+      const panel = document.getElementById('bufferPlot').closest('.panel');
+      const histSection = document.createElement('div');
+      histSection.innerHTML = '<div style="margin-top: 20px; padding-top: 20px; border-top: 1px solid #2d3748;"><h3 style="margin-bottom: 10px; font-size: 14px; color: #e6e8ee;">Reward Distribution (from Buffer)</h3><div id="rewardHistPlot" class="plot" style="height: 250px;"></div></div>';
+      panel.appendChild(histSection);
+      histPlot = document.getElementById('rewardHistPlot');
+    }
+    
+    console.log('Plotting histogram with trace:', histTrace);
+    
+    Plotly.react('rewardHistPlot', histTrace, {
+      paper_bgcolor: '#151821',
+      plot_bgcolor: '#151821',
+      font: { color: '#e6e8ee' },
+      xaxis: { 
+        title: 'Reward Value',
+        tickformat: '.1f'
+      },
+      yaxis: { 
+        title: 'Count',
+        type: 'log'
+      },
+      margin: { t: 10, l: 60, r: 20, b: 40 },
+      bargap: 0.2
+    }, { responsive: true });
+    
+    console.log('Histogram plot rendered');
+  } else {
+    console.log('No reward histogram data available');
+  }
 }
 
 function renderMetricList(metrics) {
