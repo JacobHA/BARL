@@ -16,7 +16,7 @@
       </div>
       <div class="header-actions">
         <a class="btn" href="/">← Back to hub</a>
-        <button id="trackUpdatesBtn" class="btn">Track Updates: OFF</button>
+        <button id="trackUpdatesBtn" class="btn">Track Updates: ON</button>
         <button id="toggleAxisBtn" class="btn">Toggle X-Axis</button>
       </div>
     </header>
@@ -29,6 +29,13 @@
           </div>
           <input id="metricSearch" class="input" placeholder="Search metrics" />
           <div id="metricList" class="metric-list"></div>
+        </section>
+
+        <section class="panel">
+          <div class="panel-header">
+            <h2>Replay Buffer Plots</h2>
+          </div>
+          <div id="bufferPlotList" class="metric-list"></div>
         </section>
 
         <section class="panel">
@@ -61,7 +68,7 @@
           <div id="mainPlot" class="plot"></div>
         </section>
 
-        <section class="panel">
+        <section id="bufferPanel" class="panel" style="display: none;">
           <div class="panel-header">
             <h2>Buffer Statistics</h2>
           </div>

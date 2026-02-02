@@ -66,6 +66,12 @@ body {
   margin-bottom: 12px;
 }
 
+.panel-header > div {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
 .panel-header h2 {
   margin: 0;
   font-size: 16px;
@@ -157,6 +163,34 @@ body {
 .metric-item.active { border-color: var(--accent); background: rgba(91, 140, 255, 0.08); }
 
 .files-list { display: flex; flex-direction: column; gap: 8px; font-size: 13px; }
+
+.file-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 10px;
+  background: #10131a;
+}
+
+.file-path {
+  word-break: break-all;
+}
+
+.file-meta {
+  color: var(--muted);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.file-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  white-space: nowrap;
+}
 
 .plot { height: 520px; }
 

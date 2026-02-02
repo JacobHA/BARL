@@ -1,19 +1,27 @@
 let selectedMetrics = new Set(['eval/avg_reward']);
+let selectedBufferPlots = new Set();
 let metricsData = {};
+let lastMetricsListKey = '';
+let lastBufferStats = null;
 let xAxisMode = 'time';
 let lastDataUpdateTime = Date.now();
 let metricsInterval = null;
 let isRunActive = true;
-let trackUpdates = false; // When true, disable zoom preservation
+let trackUpdates = true; // When false, enable zoom preservation
 
 const runId = window.__RUN_ID__;
+const bufferPlotOptions = [
+  { id: 'buffer_size', label: 'Buffer Size' },
+  { id: 'terminated_fraction', label: 'Terminated Fraction' },
+  { id: 'reward_histogram', label: 'Reward Histogram' }
+];
 
 async function fetchMetrics() {
   const res = await fetch(`/api/runs/${runId}/metrics`);
   const data = await res.json();
+  const incomingData = data.data || {};
   const oldDataStr = JSON.stringify(metricsData);
-  metricsData = data.data || {};
-  const newDataStr = JSON.stringify(metricsData);
+  const newDataStr = JSON.stringify(incomingData);
   
   // Check if data changed
   if (oldDataStr !== newDataStr) {
@@ -32,12 +40,25 @@ async function fetchMetrics() {
     }
   }
   
-  xAxisMode = data.x_axis_mode || 'time';
-  renderMetricList(data.metrics || []);
-  updatePlot();
-  updateAxisLabel();
+  // Only update visuals if we actually have data to show
+  if (Object.keys(incomingData).length > 0) {
+    metricsData = incomingData;
+    xAxisMode = data.x_axis_mode || 'time';
+
+    const metricsList = data.metrics || [];
+    const metricsKey = metricsList.join('|');
+    if (metricsKey !== lastMetricsListKey) {
+      renderMetricList(metricsList);
+      lastMetricsListKey = metricsKey;
+    }
+
+    updatePlot();
+    updateAxisLabel();
+  }
   // Also fetch and plot buffer stats
-  fetchBufferStats();
+  if (selectedBufferPlots.size > 0) {
+    fetchBufferStats();
+  }
 }
 
 async function fetchNotes() {
@@ -85,17 +106,74 @@ async function fetchHparams() {
 async function fetchBufferStats() {
   const res = await fetch(`/api/runs/${runId}/buffer_stats`);
   const data = await res.json();
-  plotBufferStats(data);
+  const hasData = Object.keys(data || {}).length > 0;
+  if (!hasData && lastBufferStats) {
+    plotBufferStats(lastBufferStats);
+    return;
+  }
+  if (hasData) {
+    lastBufferStats = data;
+    plotBufferStats(data);
+  }
+}
+
+function renderBufferPlotList() {
+  const container = document.getElementById('bufferPlotList');
+  container.innerHTML = '';
+
+  bufferPlotOptions.forEach(option => {
+    const item = document.createElement('div');
+    item.className = 'metric-item';
+    if (selectedBufferPlots.has(option.id)) item.classList.add('active');
+    item.textContent = option.label;
+    item.onclick = () => toggleBufferPlot(option.id);
+    container.appendChild(item);
+  });
+}
+
+function toggleBufferPlot(plotId) {
+  if (selectedBufferPlots.has(plotId)) {
+    selectedBufferPlots.delete(plotId);
+  } else {
+    selectedBufferPlots.add(plotId);
+  }
+  renderBufferPlotList();
+  updateBufferPanelVisibility();
+  if (selectedBufferPlots.size > 0) {
+    fetchBufferStats();
+  }
+}
+
+function updateBufferPanelVisibility() {
+  const panel = document.getElementById('bufferPanel');
+  if (!panel) return;
+  panel.style.display = selectedBufferPlots.size > 0 ? 'block' : 'none';
+
+  if (selectedBufferPlots.size === 0) {
+    const bufferPlot = document.getElementById('bufferPlot');
+    if (bufferPlot) {
+      bufferPlot.innerHTML = '';
+    }
+    const histPlot = document.getElementById('rewardHistPlot');
+    if (histPlot && histPlot.parentElement) {
+      histPlot.parentElement.remove();
+    }
+  }
 }
 
 function plotBufferStats(data) {
+  if (selectedBufferPlots.size === 0) {
+    updateBufferPanelVisibility();
+    return;
+  }
+
   const nStored = data.n_stored || {};
   const terminatedFrac = data.terminated_fraction || {};
   const rewardHist = data.reward_histogram || {};
   
   const traces = [];
   
-  if (nStored.steps && nStored.steps.length > 0) {
+  if (selectedBufferPlots.has('buffer_size') && nStored.steps && nStored.steps.length > 0) {
     const xData = xAxisMode === 'time' ? nStored.times : nStored.steps;
     traces.push({
       x: xData,
@@ -108,7 +186,7 @@ function plotBufferStats(data) {
     });
   }
   
-  if (terminatedFrac.steps && terminatedFrac.steps.length > 0) {
+  if (selectedBufferPlots.has('terminated_fraction') && terminatedFrac.steps && terminatedFrac.steps.length > 0) {
     const xData = xAxisMode === 'time' ? terminatedFrac.times : terminatedFrac.steps;
     traces.push({
       x: xData,
@@ -121,8 +199,9 @@ function plotBufferStats(data) {
     });
   }
   
-  if (traces.length === 0 && Object.keys(rewardHist).length === 0) {
-    document.getElementById('bufferPlot').innerHTML = '<div style="padding: 20px; text-align: center; color: #888;">No buffer statistics available</div>';
+  const wantsHistogram = selectedBufferPlots.has('reward_histogram');
+  if (traces.length === 0 && (!wantsHistogram || Object.keys(rewardHist).length === 0)) {
+    // Avoid clearing the plot to prevent flicker if data briefly goes empty
     return;
   }
   
@@ -172,7 +251,7 @@ function plotBufferStats(data) {
   Plotly.react('bufferPlot', traces, layout, { responsive: true });
   
   // Plot reward histogram if available
-  if (Object.keys(rewardHist).length > 0) {
+  if (wantsHistogram && Object.keys(rewardHist).length > 0) {
     console.log('Reward histogram data:', rewardHist);
     
     // Keep original keys and sort by numeric value
@@ -183,13 +262,21 @@ function plotBufferStats(data) {
     console.log('Processed rewards:', rewards);
     console.log('Processed counts:', counts);
     
+    let barWidth = 0.5;
+    if (rewards.length > 1) {
+      const diffs = rewards.slice(1).map((v, i) => v - rewards[i]).filter(d => d > 0);
+      if (diffs.length > 0) {
+        barWidth = Math.min(...diffs) * 0.9;
+      }
+    }
+
     const histTrace = [{
       x: rewards,
       y: counts,
       type: 'bar',
       name: 'Reward Histogram',
       marker: { color: '#7ed3b2' },
-      width: 0.5  // Explicitly set bar width
+      width: barWidth
     }];
     
 
@@ -393,9 +480,11 @@ function bindEvents() {
   });
   document.getElementById('saveNotesBtn').addEventListener('click', saveNotes);
   document.getElementById('toggleAxisBtn').addEventListener('click', toggleAxis);
-  document.getElementById('trackUpdatesBtn').addEventListener('click', () => {
+  const btn = document.getElementById('trackUpdatesBtn');
+  btn.textContent = trackUpdates ? 'Track Updates: ON' : 'Track Updates: OFF';
+  btn.style.backgroundColor = trackUpdates ? '#7ed3b2' : '';
+  btn.addEventListener('click', () => {
     trackUpdates = !trackUpdates;
-    const btn = document.getElementById('trackUpdatesBtn');
     btn.textContent = trackUpdates ? 'Track Updates: ON' : 'Track Updates: OFF';
     btn.style.backgroundColor = trackUpdates ? '#7ed3b2' : '';
   });
@@ -403,6 +492,8 @@ function bindEvents() {
 
 createPlot();
 bindEvents();
+renderBufferPlotList();
+updateBufferPanelVisibility();
 fetchMetrics();
 fetchNotes();
 fetchHparams();
