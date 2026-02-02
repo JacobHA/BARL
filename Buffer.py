@@ -125,8 +125,22 @@ class Buffer:
     def calculate_statistics(self):
         # get the histogram for rewards:
         rewards = self.rewards[:self.n_stored]
-        unique, counts = np.unique(rewards, return_counts=True)
-        reward_histogram = dict(zip(unique.tolist(), counts.tolist()))
+        rewards = rewards.flatten()
+        reward_histogram = {}
+        if self.n_stored > 0:
+            unique = np.unique(rewards)
+            if unique.size <= 50:
+                unique, counts = np.unique(rewards, return_counts=True)
+                reward_histogram = dict(zip(unique.tolist(), counts.tolist()))
+            else:
+                # Bin continuous rewards to avoid one-count-per-value
+                counts, edges = np.histogram(rewards, bins=50)
+                centers = (edges[:-1] + edges[1:]) / 2.0
+                reward_histogram = {
+                    float(center): int(count)
+                    for center, count in zip(centers, counts)
+                    if count > 0
+                }
         return {'reward_histogram': reward_histogram,
                 'terminated_fraction': np.sum(self.terminated[:self.n_stored]) / self.n_stored,
                 'n_stored': self.n_stored,
