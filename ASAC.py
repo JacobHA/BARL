@@ -8,7 +8,7 @@ from Architectures import DummyActor, make_gaussian_actor, make_mlp, make_sac_cr
 
 # TODO There is a big question about how to correctly specify different architectures. how do we allow for shared backbones?
 
-class SAC(BaseAgent):
+class ASAC(BaseAgent):
     def __init__(self,
                  *args,
                  alpha: float = 1.0,
@@ -26,7 +26,7 @@ class SAC(BaseAgent):
         super().__init__(*args, **kwargs)
         self.kwargs = get_new_params(self, locals())
         
-        self.algo_name = 'SAC'
+        self.algo_name = 'ASAC'
         self.alpha = alpha
         self.reward_rate_learning_rate = reward_rate_learning_rate
         self.reset_penalty_learning_rate = reset_penalty_learning_rate
@@ -188,7 +188,7 @@ if __name__ == "__main__":
 
     callback = NetworkMonitorCallback(monitor, networks)
     env = "Pendulum-v1"
-    agent = SAC(env, 
+    agent = ASAC(env, 
                 architecture=[make_gaussian_actor, make_sac_critic_mlp],
                 architecture_kwargs=[{'obs_dim': gym.make(env).observation_space.shape[0], # actor takes a state and outputs a mean action
                                      'action_dim': gym.make(env).action_space.shape[0],
