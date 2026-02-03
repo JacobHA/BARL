@@ -35,7 +35,7 @@ class NetworkMonitor:
     def __init__(
         self,
         track_weights: bool = True,
-        track_gradients: bool = True,
+        track_gradients: bool = True, # TODO: check how e.g. target net without grads is handled
         compute_eigenvalues: bool = True,
         compute_stable_rank: bool = True,
         compute_lipschitz: bool = True,
@@ -455,6 +455,8 @@ def create_monitor_for_agent(
     named_networks: List[str],
     log_frequency: int = 100,
     track_eigenvalues: bool = False,  # Expensive, disabled by default
+    compute_stable_rank: bool = True,
+    compute_lipschitz: bool = True,
     track_dormant_neurons: bool = True,
     dormant_threshold: float = 0.025,
 ) -> Tuple[NetworkMonitor, List[str]]:
@@ -475,7 +477,8 @@ def create_monitor_for_agent(
         track_weights=True,
         track_gradients=True,
         compute_eigenvalues=track_eigenvalues,
-        compute_stable_rank=True,
+        compute_stable_rank=compute_stable_rank,
+        compute_lipschitz=compute_lipschitz,
         track_dormant_neurons=track_dormant_neurons,
         dormant_threshold=dormant_threshold,
         log_frequency=log_frequency,

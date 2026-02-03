@@ -76,7 +76,7 @@ class DQN(BaseAgent):
         if self.learn_env_steps % self.log_interval == 0:
             self.log_history("train/epsilon", self.epsilon, self.learn_env_steps)
 
-        # Periodically update the target net
+        # Periodically update the target nettarget_update_interval > 0 and self.work:
         if self.use_target_network and self.learn_env_steps % self.target_update_interval == 0:
             # Use Polyak averaging as specified:
             polyak(self.online_qs, self.target_qs, self.polyak_tau)
@@ -91,14 +91,7 @@ class DQN(BaseAgent):
             return self.evaluation_policy(state)
     
 
-    def evaluation_policy(self, state: np.ndarray) -> int:
-        # Get the greedy action from the q values:
-        # Reshape to batch format: (4,) -> (1, 4)
-        if isinstance(state, np.ndarray):
-            state = torch.from_numpy(state).float().to(self.device)
-        if state.dim() == 1:
-            state = state.unsqueeze(0)  # Add batch dimension
-        
+    def evaluation_policy(self, state: np.ndarray) -> int:       
         with torch.no_grad():
             qvals = self.online_qs(state)
         return torch.argmax(qvals[0]).item()
@@ -190,7 +183,6 @@ if __name__ == '__main__':
                 log_interval=500,
                 record_eval_video=True,
                 eval_video_every=5,
-                eval_video_async=True,
                 network_monitor=callback,  # <-- Add monitoring
                 )
 

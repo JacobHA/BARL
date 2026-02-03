@@ -2,6 +2,7 @@ import os
 import time
 import numpy as np
 import torch
+import json
 import gymnasium as gym
 from typing import Optional, Union, Tuple, List
 import tqdm
@@ -10,7 +11,7 @@ from utils import auto_device, env_id_to_envs, find_torch_modules
 from Logger import BaseLogger, StdLogger
 from Buffer import Buffer
 from video_utils import VideoRecorder, resolve_video_dir
-from network_monitor import EmptyMonitor, NetworkMonitor, NetworkMonitorCallback
+from network_monitor import EmptyMonitor
 # use get_type_hints to throw errors if the user passes in an invalid type:
 
 
@@ -44,7 +45,6 @@ class BaseAgent:
                  record_eval_video: bool = False,
                  eval_video_every: int = 1,
                  eval_video_episodes: int = 1,
-                 eval_video_async: bool = False,
                  network_monitor: Optional[callable] = None,
                  ) -> None:
 
@@ -121,7 +121,6 @@ class BaseAgent:
             record_enabled=record_eval_video,
             record_every=eval_video_every,
             num_episodes=eval_video_episodes,
-            async_recording=eval_video_async,
         )
         
         self.network_monitor = network_monitor if network_monitor is not None else EmptyMonitor()
@@ -130,16 +129,12 @@ class BaseAgent:
         self._n_updates = 0
 
     def log_hparams(self, hparam_dict):
-        # Log the agent's hyperparameters:
         for logger in self.loggers:
             logger.log_hparams(hparam_dict)
 
     def log_history(self, param, val, step):
         for logger in self.loggers:
             logger.log_history(param, val, step)
-
-    def _initialize_networks(self):
-        raise NotImplementedError()
 
     def exploration_policy(self, state: np.ndarray):
         raise NotImplementedError()
@@ -159,7 +154,6 @@ class BaseAgent:
         Sample the replay buffer and do the updates
         (gradient descent and update target networks)
         """
-        
         # Increase update counter
         self._n_updates += gradient_steps
         for grad_step in range(gradient_steps):
@@ -168,8 +162,6 @@ class BaseAgent:
         # Monitor networks after updates
         self.network_monitor(self)
         
-            
-
     def learn(self, total_timesteps: int):
         """
         Train the agent for total_timesteps
@@ -192,8 +184,7 @@ class BaseAgent:
                 while not done and self.learn_env_steps < total_timesteps:
                     action = self.exploration_policy(state)
 
-                    next_state, reward, terminated, truncated, infos = self.env.step(
-                        action)
+                    next_state, reward, terminated, truncated, info = self.env.step(action)
                     self._on_step()
                     avg_ep_len += 1
                     done = terminated or truncated
@@ -220,7 +211,6 @@ class BaseAgent:
                             # Save reward histogram to a separate file
                             for logger in self.loggers:
                                 if hasattr(logger, 'run_dir') and logger.run_dir:
-                                    import json
                                     histogram_path = os.path.join(logger.run_dir, 'reward_histogram.json')
                                     with open(histogram_path, 'w') as f:
                                         json.dump(buffer_stats['reward_histogram'], f)
@@ -249,21 +239,15 @@ class BaseAgent:
     def _cleanup(self) -> None:
         """
         Cleanup method called after training completes.
-        Waits for async video recording and closes loggers.
+        Closes loggers and cleans up resources.
         """
         # Terminate any background preloading processes in the buffer
         if hasattr(self, 'buffer'):
             self.buffer.cleanup()
         
-        # Wait for any async video recordings to complete (no timeout)
-        if hasattr(self, 'video_recorder') and self.video_recorder.async_recording:
-            print("Waiting for async video recording to complete...")
-            self.video_recorder.wait_for_completion(timeout=None)
-        
         # Close all loggers
         for logger in self.loggers:
-            if hasattr(logger, 'close'):
-                logger.close()
+            logger.close()
     
     def _on_step(self) -> None:
         """
@@ -293,30 +277,19 @@ class BaseAgent:
         video_env_created = False
         video_name_prefix = None
         video_episode_rewards = []
-        
+        video_dir = None
+
         if record_this_eval:
             video_dir = resolve_video_dir(self.loggers)
-            if self.video_recorder.async_recording:
-                if video_dir:
-                    self.video_recorder.record_async(
-                        self.env_id,
-                        video_dir,
-                        self.learn_env_steps,
-                        self.evaluation_policy,
-                        self.is_atari,
-                        self.permute_dims,
-                        log_callback=self.log_history,
-                    )
-            else:
-                if video_dir:
-                    eval_env, video_name_prefix = self.video_recorder.get_video_env(
-                        self.env_id,
-                        video_dir,
-                        self.learn_env_steps,
-                        self.is_atari,
-                        self.permute_dims,
-                    )
-                    video_env_created = True
+            if video_dir:
+                eval_env, video_name_prefix = self.video_recorder.get_video_env(
+                    self.env_id,
+                    video_dir,
+                    self.learn_env_steps,
+                    self.is_atari,
+                    self.permute_dims,
+                )
+                video_env_created = True
 
         try:
             for ep in range(n_episodes):
@@ -334,7 +307,7 @@ class BaseAgent:
                     done = terminated or truncated
                     for callback in self.eval_callbacks:
                         callback(state=state, action=action, reward=reward, done=done, end=False)
-                if record_this_eval and (not self.video_recorder.async_recording) and ep < self.video_recorder.num_episodes:
+                if record_this_eval and ep < self.video_recorder.num_episodes:
                     video_episode_rewards.append(ep_reward)
         finally:
             if video_env_created:
@@ -345,7 +318,7 @@ class BaseAgent:
         eval_time = (time.process_time_ns() - init_eval_time) / 1e9
         avg_reward /= n_episodes
         eval_fps = n_steps / eval_time
-        self.eval_time = eval_time
+        
         self.log_history('eval/avg_reward', avg_reward, self.learn_env_steps)
         self.log_history('eval/avg_episode_length', n_steps / n_episodes, self.learn_env_steps)
         self.log_history('eval/time', eval_time, self.learn_env_steps)
@@ -353,12 +326,10 @@ class BaseAgent:
         if video_episode_rewards:
             video_avg_reward = float(np.mean(video_episode_rewards))
             self.log_history('eval/video_avg_reward', video_avg_reward, self.learn_env_steps)
-            if video_name_prefix:
-                video_dir = resolve_video_dir(self.loggers)
-                if video_dir:
-                    self.video_recorder._save_video_metadata(
-                        video_dir, video_name_prefix, video_avg_reward, self.learn_env_steps
-                    )
+            if video_name_prefix and video_dir:
+                self.video_recorder._save_video_metadata(
+                    video_dir, video_name_prefix, video_avg_reward, self.learn_env_steps
+                )
         for callback in self.eval_callbacks:
             callback(self, end=True)
         return avg_reward
@@ -404,5 +375,5 @@ class BaseAgent:
 
 if __name__ == '__main__':
     from Logger import WandBLogger
-    logger = WandBLogger(entity="jacobhadamczyk", project="test")
-    agent = BaseAgent("CartPole-v1")
+    wandb_logger = WandBLogger(entity="jacobhadamczyk", project="test")
+    agent = BaseAgent("CartPole-v1", loggers=(wandb_logger,))

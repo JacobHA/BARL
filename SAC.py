@@ -196,7 +196,6 @@ if __name__ == "__main__":
                 log_interval=500,
                 record_eval_video=True,
                 eval_video_every=5,
-                eval_video_async=True,
                 network_monitor=callback,  # <-- Add monitoring
                 )
 
