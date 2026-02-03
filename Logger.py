@@ -159,3 +159,7 @@ class TensorboardLogger(BaseLogger):
         self.writer.add_video(name, video_path)
     def log_image(self, image_path, name="image"):
         self.writer.add_image(name, image_path)
+    def close(self):
+        """Close the TensorBoard writer."""
+        if hasattr(self, 'writer'):
+            self.writer.close()

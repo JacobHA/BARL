@@ -180,6 +180,19 @@ class Buffer:
         for handler, h_kwargs in self.done_handlers:
             handler(self, **h_kwargs)
 
+    def cleanup(self) -> None:
+        """Cleanup method to terminate any active multiprocessing processes."""
+        if self.proc is not None:
+            try:
+                if self.proc.is_alive():
+                    self.proc.terminate()
+                    self.proc.join(timeout=5.0)
+                    if self.proc.is_alive():
+                        self.proc.kill()
+            except Exception:
+                pass
+            self.proc = None
+
 
 class TDBuffer(Buffer):
     def __init__(self, *args,  td_steps:int=1 ,**kwargs):

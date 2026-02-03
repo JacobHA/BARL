@@ -19,7 +19,7 @@ body {
 }
 
 .page {
-  max-width: 1400px;
+  max-width: 1800px;
   margin: 0 auto;
   padding: 32px 24px 64px;
 }
@@ -193,6 +193,137 @@ body {
 }
 
 .plot { height: 520px; }
+
+.video-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 12px;
+}
+
+.video-card {
+  background: #10131a;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.video-title {
+  font-size: 12px;
+  color: var(--text);
+  word-break: break-all;
+}
+
+.video-card video {
+  width: 100%;
+  border-radius: 8px;
+  background: #000;
+}
+
+.video-meta {
+  display: flex;
+  justify-content: space-between;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.video-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.network-layer-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 300px;
+  overflow: auto;
+}
+
+.network-layer-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  cursor: pointer;
+  background: #10131a;
+  transition: all 0.15s ease;
+}
+
+.network-layer-item:hover {
+  border-color: var(--accent);
+}
+
+.network-layer-item.active {
+  border-color: var(--accent);
+  background: rgba(91, 140, 255, 0.12);
+}
+
+.layer-name {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text);
+}
+
+.layer-prefix {
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.network-stats-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 16px;
+}
+
+@media (min-width: 1100px) {
+  .network-stats-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+.memory-panel {
+  margin-top: 8px;
+  padding: 10px;
+  background: #10131a;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-size: 13px;
+}
+
+.memory-total {
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+
+.memory-breakdown {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.memory-row {
+  display: flex;
+  justify-content: space-between;
+  color: var(--muted);
+}
+
+.memory-label {
+  text-transform: capitalize;
+}
+
+.memory-toggle {
+  cursor: pointer;
+}
+
+.memory-toggle:hover {
+  border-color: var(--accent);
+}
 
 @media (max-width: 1024px) {
   .layout { grid-template-columns: 1fr; }

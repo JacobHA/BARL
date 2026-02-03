@@ -4,6 +4,7 @@ import numpy as np
 import torch
 from Architectures import make_atari_nature_cnn, make_mlp
 from BaseAgent import BaseAgent, get_new_params
+from network_monitor import NetworkMonitorCallback, create_monitor_for_agent
 from utils import polyak
 
 
@@ -140,6 +141,15 @@ class DQN(BaseAgent):
         self.log_history("train/loss", loss.item(), self.learn_env_steps)
 
         return loss
+    
+    def save_model(self, filepath: str):
+        """Save the model to the specified filepath."""
+        torch.save({
+            'online_qs_state_dict': self.online_qs.state_dict(),
+            'target_qs_state_dict': self.target_qs.state_dict() if self.use_target_network else None,
+            'optimizer_state_dict': self.optimizer.state_dict(),
+            'epsilon': self.epsilon,
+        }, filepath)
 
 
 if __name__ == '__main__':
@@ -151,12 +161,20 @@ if __name__ == '__main__':
     #logger = WandBLogger(entity='jacobhadamczyk', project='test')
     # mlp = make_mlp(env.unwrapped.observation_space.shape[0], env.unwrapped.action_space.n, hidden_dims=[32, 32])#, activation=torch.nn.Mish)
     # cnn = make_atari_nature_cnn(gym.make(env).action_space.n)
+    # Create monitor configured for your agent type
+    monitor, networks = create_monitor_for_agent(
+        named_networks=["online_qs"],
+        log_frequency=100,  # Log every 100 gradient steps
+        track_eigenvalues=True,  # Expensive, keep disabled
+    )
+
+    callback = NetworkMonitorCallback(monitor, networks)
     env = 'Acrobot-v1'
     agent = DQN(env, 
                 architecture=make_mlp,
                 architecture_kwargs={'input_dim': gym.make(env).observation_space.shape[0],
                                      'output_dim': gym.make(env).action_space.n,
-                                     'hidden_dims': [32, 32]},
+                                     'hidden_dims': [128, 128]},
                 loggers=(logger,),
                 learning_rate=0.003,
                 exploration_fraction=0.05,
@@ -164,13 +182,16 @@ if __name__ == '__main__':
                 minimum_epsilon=0.08,
                 train_interval=10,
                 gradient_steps=4,
-                batch_size=256,
+                batch_size=64,
                 use_target_network=True,
                 target_update_interval=10,
                 polyak_tau=1.0,
                 learning_starts=5000,
                 log_interval=500,
-
+                record_eval_video=True,
+                eval_video_every=5,
+                eval_video_async=True,
+                network_monitor=callback,  # <-- Add monitoring
                 )
 
     agent.learn(total_timesteps=160_000)

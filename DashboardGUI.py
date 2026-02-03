@@ -7,7 +7,7 @@ import time
 from collections import defaultdict
 from typing import Any, Dict, List, Optional
 
-from flask import Flask, Response, jsonify, render_template, request
+from flask import Flask, Response, jsonify, render_template, request, send_from_directory
 from flask_cors import CORS
 
 
@@ -29,6 +29,7 @@ class DashboardGUI:
         self.template_dir = os.path.join(self.dashboard_dir, "templates")
         self.static_dir = os.path.join(self.dashboard_dir, "static")
         self.base_log_dir = os.path.abspath(os.path.join(self.base_dir, base_log_dir))
+        self.uploaded_log_dir = os.path.abspath(os.path.join(self.base_dir, "uploaded_logs"))
 
         self.metrics_data = defaultdict(lambda: {"steps": [], "values": [], "times": []})
         self.available_metrics = set()
@@ -60,6 +61,9 @@ class DashboardGUI:
         )
         CORS(self.app)
         self._setup_routes()
+
+        # Ensure uploaded logs directory exists
+        os.makedirs(self.uploaded_log_dir, exist_ok=True)
 
     def _resolve_current_run_dir(self) -> Optional[str]:
         if not self.agent:
@@ -145,6 +149,67 @@ class DashboardGUI:
                 }
             )
 
+        @self.app.route("/api/upload_logs", methods=["POST"])
+        def api_upload_logs():
+            files = request.files.getlist("files")
+            if not files:
+                return jsonify({"error": "No files uploaded"}), 400
+
+            run_ids = set()
+            os.makedirs(self.uploaded_log_dir, exist_ok=True)
+
+            for storage_file in files:
+                raw_name = (storage_file.filename or "").replace("\\", "/")
+                if not raw_name:
+                    continue
+                normalized = os.path.normpath(raw_name)
+                if normalized.startswith("..") or os.path.isabs(normalized):
+                    continue
+
+                segments = normalized.split(os.sep)
+                run_name = segments[0] if segments else "uploaded_run"
+                if not run_name:
+                    run_name = "uploaded_run"
+
+                rel_inside = "/".join(segments[1:]) if len(segments) > 1 else os.path.basename(normalized)
+                if not rel_inside:
+                    rel_inside = os.path.basename(normalized)
+
+                run_dir = os.path.join(self.uploaded_log_dir, run_name)
+                dest_path = os.path.abspath(os.path.join(run_dir, rel_inside))
+                if not dest_path.startswith(run_dir + os.sep) and dest_path != run_dir:
+                    continue
+
+                os.makedirs(os.path.dirname(dest_path), exist_ok=True)
+                storage_file.save(dest_path)
+                run_ids.add(f"uploaded/{run_name}")
+
+            print(f"[upload] received {len(files)} files, runs={sorted(run_ids)}")
+
+            # Build history.json from TensorBoard event files for each run
+            for run_id in sorted(run_ids):
+                run_dir = self._run_dir_from_id(run_id)
+                if not run_dir:
+                    print(f"[upload] run dir not found for {run_id}")
+                    continue
+                try:
+                    history = self._build_history_from_tfevents(run_dir)
+                    if history:
+                        history_path = os.path.join(run_dir, "history.json")
+                        with open(history_path, "w") as f:
+                            json.dump(history, f)
+                        print(f"[upload] wrote history.json for {run_id} with {len(history)} metrics")
+                    else:
+                        print(f"[upload] no scalar data found for {run_id}")
+                except Exception as exc:
+                    print(f"[upload] failed to build history for {run_id}: {exc}")
+
+            # Bust cache so newly uploaded runs appear immediately
+            self._runs_cache = None
+            self._runs_cache_time = 0
+
+            return jsonify({"success": True, "run_ids": sorted(run_ids)})
+
         @self.app.route("/api/runs/<path:run_id>/metrics")
         def api_run_metrics(run_id: str):
             # Always load from history.json file
@@ -216,6 +281,86 @@ class DashboardGUI:
             hparams_path = os.path.join(run_dir, "hparams.txt")
             if not os.path.exists(hparams_path):
                 return jsonify({"hparams": {}})
+            try:
+                hparams = {}
+                with open(hparams_path, "r", encoding="utf-8") as f:
+                    lines = f.readlines()
+                for line in lines[2:]:
+                    if ":" in line:
+                        key, value = line.split(":", 1)
+                        hparams[key.strip()] = value.strip()
+                return jsonify({"hparams": hparams})
+            except Exception:
+                return jsonify({"hparams": {}})
+
+        @self.app.route("/api/runs/<path:run_id>/storage")
+        def api_run_storage(run_id: str):
+            run_dir = self._run_dir_from_id(run_id)
+            if not run_dir:
+                return jsonify({"error": "Run not found"}), 404
+            breakdown = self._calculate_run_storage(run_dir)
+            return jsonify(breakdown)
+
+        @self.app.route("/api/runs/<path:run_id>/videos")
+        def api_run_videos(run_id: str):
+            run_dir = self._run_dir_from_id(run_id)
+            if not run_dir:
+                return jsonify({"videos": []})
+            video_dir = os.path.join(run_dir, "videos")
+            if not os.path.isdir(video_dir):
+                return jsonify({"videos": []})
+            metadata = []
+            metadata_path = os.path.join(video_dir, "video_metadata.json")
+            if os.path.exists(metadata_path):
+                try:
+                    with open(metadata_path, "r") as f:
+                        metadata = json.load(f)
+                except Exception:
+                    metadata = []
+            prefix_to_entry = {}
+            for entry in metadata:
+                prefix = entry.get("prefix")
+                if not prefix:
+                    continue
+                prefix_to_entry[prefix] = entry
+            videos = []
+            for name in sorted(os.listdir(video_dir)):
+                if not name.lower().endswith((".mp4", ".webm", ".gif")):
+                    continue
+                path = os.path.join(video_dir, name)
+                if not os.path.isfile(path):
+                    continue
+                reward = None
+                for prefix, entry in prefix_to_entry.items():
+                    if prefix in name:
+                        reward = entry.get("avg_reward")
+                        break
+                videos.append(
+                    {
+                        "name": name,
+                        "size": os.path.getsize(path),
+                        "mtime": os.path.getmtime(path),
+                        "url": f"/api/runs/{run_id}/videos/{name}",
+                        "reward": reward,
+                    }
+                )
+            videos.sort(key=lambda v: v["mtime"], reverse=True)
+            return jsonify({"videos": videos})
+
+        @self.app.route("/api/runs/<path:run_id>/videos/<path:filename>")
+        def api_run_video_file(run_id: str, filename: str):
+            run_dir = self._run_dir_from_id(run_id)
+            if not run_dir:
+                return jsonify({"error": "Run not found"}), 404
+            video_dir = os.path.join(run_dir, "videos")
+            if not os.path.isdir(video_dir):
+                return jsonify({"error": "Video directory not found"}), 404
+            safe_path = os.path.abspath(os.path.join(video_dir, filename))
+            if not safe_path.startswith(video_dir + os.sep):
+                return jsonify({"error": "Invalid path"}), 400
+            if not os.path.isfile(safe_path):
+                return jsonify({"error": "Video not found"}), 404
+            return send_from_directory(video_dir, filename, as_attachment=False)
             try:
                 hparams = {}
                 with open(hparams_path, "r") as f:
@@ -329,6 +474,12 @@ class DashboardGUI:
         return False
 
     def _run_dir_from_id(self, run_id: str) -> Optional[str]:
+        if run_id.startswith("uploaded/"):
+            uploaded_id = run_id.split("/", 1)[1]
+            run_dir = os.path.abspath(os.path.join(self.uploaded_log_dir, uploaded_id))
+            if os.path.isdir(run_dir) and run_dir.startswith(self.uploaded_log_dir):
+                return run_dir
+
         run_dir = os.path.abspath(os.path.join(self.base_log_dir, run_id))
         if os.path.isdir(run_dir) and run_dir.startswith(self.base_log_dir):
             return run_dir
@@ -341,39 +492,43 @@ class DashboardGUI:
                 return self._runs_cache
         
         runs = []
-        if not os.path.isdir(self.base_log_dir):
-            self._runs_cache = runs
-            self._runs_cache_time = time.time()
-            return runs
-        for name in sorted(os.listdir(self.base_log_dir)):
-            path = os.path.join(self.base_log_dir, name)
-            if not os.path.isdir(path):
-                continue
-            algo_name_path = os.path.join(path, "algo_name.txt")
-            algo_name = "unknown"
-            if os.path.exists(algo_name_path):
-                try:
-                    with open(algo_name_path, "r") as f:
-                        algo_name = f.read().strip()
-                except Exception:
-                    pass
-            env_str_path = os.path.join(path, "env_str.txt")
-            env_str = "unknown"
-            if os.path.exists(env_str_path):
-                try:
-                    with open(env_str_path, "r") as f:
-                        env_str = f.read().strip()
-                except Exception:
-                    pass
-            runs.append(
-                {
-                    "id": name,
-                    "path": path,
-                    "algo_name": algo_name,
-                    "env_str": env_str,
-                    "mtime": os.path.getmtime(path),
-                }
-            )
+
+        def add_runs_from_root(root_dir: str, prefix: Optional[str] = None):
+            if not os.path.isdir(root_dir):
+                return
+            for name in sorted(os.listdir(root_dir)):
+                path = os.path.join(root_dir, name)
+                if not os.path.isdir(path):
+                    continue
+                algo_name_path = os.path.join(path, "algo_name.txt")
+                algo_name = "unknown"
+                if os.path.exists(algo_name_path):
+                    try:
+                        with open(algo_name_path, "r") as f:
+                            algo_name = f.read().strip()
+                    except Exception:
+                        pass
+                env_str_path = os.path.join(path, "env_str.txt")
+                env_str = "unknown"
+                if os.path.exists(env_str_path):
+                    try:
+                        with open(env_str_path, "r") as f:
+                            env_str = f.read().strip()
+                    except Exception:
+                        pass
+                run_id = f"{prefix}/{name}" if prefix else name
+                runs.append(
+                    {
+                        "id": run_id,
+                        "path": path,
+                        "algo_name": algo_name,
+                        "env_str": env_str,
+                        "mtime": os.path.getmtime(path),
+                    }
+                )
+
+        add_runs_from_root(self.base_log_dir)
+        add_runs_from_root(self.uploaded_log_dir, prefix="uploaded")
         runs.sort(key=lambda r: r["mtime"], reverse=True)
         
         # Update cache
@@ -385,6 +540,28 @@ class DashboardGUI:
         run_dir = self._run_dir_from_id(run_id)
         if not run_dir:
             return {}
+        
+        # For uploaded runs, re-parse event files every time to catch live updates
+        if run_id.startswith("uploaded/"):
+            print(f"[metrics] re-parsing event files for {run_id}")
+            history = self._build_history_from_tfevents(run_dir)
+            if history:
+                history_path = os.path.join(run_dir, "history.json")
+                try:
+                    with open(history_path, "w") as f:
+                        json.dump(history, f)
+                except Exception as exc:
+                    print(f"[metrics] failed to write history.json: {exc}")
+                return {
+                    metric: {
+                        "steps": [entry[0] for entry in entries],
+                        "values": [entry[1] for entry in entries],
+                        "times": [entry[2] for entry in entries],
+                    }
+                    for metric, entries in history.items()
+                }
+        
+        # For non-uploaded runs, use cached history.json
         history_path = os.path.join(run_dir, "history.json")
         if not os.path.exists(history_path):
             return {}
@@ -401,6 +578,91 @@ class DashboardGUI:
             }
         except Exception:
             return {}
+
+    def _build_history_from_tfevents(self, run_dir: str) -> Dict[str, List[List[Any]]]:
+        event_files = []
+        for root, _dirs, files in os.walk(run_dir):
+            for name in files:
+                if "tfevents" in name or name.startswith("events.out.tfevents"):
+                    event_files.append(os.path.join(root, name))
+
+        if not event_files:
+            return {}
+
+        try:
+            from tensorboard.backend.event_processing.event_accumulator import EventAccumulator
+        except Exception as exc:
+            print(f"[upload] tensorboard import failed: {exc}")
+            return {}
+
+        merged: Dict[str, Dict[str, List[Any]]] = {}
+
+        for event_file in event_files:
+            try:
+                acc = EventAccumulator(event_file, size_guidance={"scalars": 0})
+                acc.Reload()
+                tags = acc.Tags().get("scalars", [])
+                for tag in tags:
+                    scalars = acc.Scalars(tag)
+                    if tag not in merged:
+                        merged[tag] = {"steps": [], "values": [], "times": []}
+                    for s in scalars:
+                        merged[tag]["steps"].append(s.step)
+                        merged[tag]["values"].append(float(s.value))
+                        merged[tag]["times"].append(float(s.wall_time))
+            except Exception as exc:
+                print(f"[upload] failed to read {event_file}: {exc}")
+
+        # Convert to history.json format: metric -> list of [step, value, time]
+        history: Dict[str, List[List[Any]]] = {}
+        for tag, vals in merged.items():
+            triples = list(zip(vals["steps"], vals["values"], vals["times"]))
+            triples.sort(key=lambda t: t[0])
+            history[tag] = [[int(step), float(value), float(ts)] for step, value, ts in triples]
+
+        return history
+
+    def _calculate_run_storage(self, run_dir: str) -> Dict[str, Any]:
+        totals = {
+            "videos": 0,
+            "metrics": 0,
+            "models": 0,
+            "images": 0,
+            "notes": 0,
+            "other": 0,
+        }
+        total = 0
+
+        video_dir = os.path.join(run_dir, "videos")
+        for root, _dirs, files in os.walk(run_dir):
+            for name in files:
+                path = os.path.join(root, name)
+                try:
+                    size = os.path.getsize(path)
+                except Exception:
+                    continue
+                total += size
+
+                rel = os.path.relpath(path, run_dir)
+                lower = name.lower()
+
+                if root.startswith(video_dir):
+                    totals["videos"] += size
+                elif lower.endswith((".pt", ".pth", ".ckpt")):
+                    totals["models"] += size
+                elif lower.endswith((".png", ".jpg", ".jpeg", ".gif", ".webp")):
+                    totals["images"] += size
+                elif lower.endswith((".json", ".tfevents", ".event", ".events")) or "history.json" in lower:
+                    totals["metrics"] += size
+                elif rel == "notes.md":
+                    totals["notes"] += size
+                else:
+                    totals["other"] += size
+
+        return {
+            "total": total,
+            "breakdown": totals,
+        }
 
     def _execute_command(self, command: str, params: Dict[str, Any]) -> Dict[str, Any]:
         try:

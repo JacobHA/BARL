@@ -1,13 +1,20 @@
 let selectedMetrics = new Set(['eval/avg_reward']);
 let selectedBufferPlots = new Set();
+let selectedNetworkLayer = null;
+let selectedNetworkMetrics = new Set(['weight_norm', 'grad_norm']);
 let metricsData = {};
 let lastMetricsListKey = '';
 let lastBufferStats = null;
 let xAxisMode = 'time';
 let lastDataUpdateTime = Date.now();
 let metricsInterval = null;
+let videosInterval = null;
 let isRunActive = true;
 let trackUpdates = true; // When false, enable zoom preservation
+let lastVideoKey = '';
+let networkLayers = [];
+let networkMetricsData = {};
+let videosCollapsed = false;
 
 const runId = window.__RUN_ID__;
 const bufferPlotOptions = [
@@ -22,6 +29,41 @@ async function fetchMetrics() {
   const incomingData = data.data || {};
   const oldDataStr = JSON.stringify(metricsData);
   const newDataStr = JSON.stringify(incomingData);
+  
+  // Separate network metrics from regular metrics
+  const regularMetrics = [];
+  const networkMetrics = {};
+  
+  for (const metric of (data.metrics || [])) {
+    if (metric.includes('/weight_') || metric.includes('/grad_') || 
+      metric.includes('/stable_rank') || metric.includes('/top_eigenvalue') ||
+      metric.includes('/weight_spectral_norm')) {
+      // This is a network metric - extract layer info
+      const parts = metric.split('/');
+      if (parts.length >= 3) {
+        const prefix = parts[0]; // e.g., "critic", "actor"
+        const layerName = parts.slice(1, -1).join('/'); // e.g., "0", "2"
+        const metricType = parts[parts.length - 1]; // e.g., "weight_norm"
+        const fullLayer = `${prefix}/${layerName}`;
+        
+        if (!networkMetrics[fullLayer]) {
+          networkMetrics[fullLayer] = new Set();
+        }
+        networkMetrics[fullLayer].add(metricType);
+        
+        // Store data under network metrics
+        if (!networkMetricsData[fullLayer]) {
+          networkMetricsData[fullLayer] = {};
+        }
+        networkMetricsData[fullLayer][metricType] = incomingData[metric];
+      }
+    } else {
+      regularMetrics.push(metric);
+    }
+  }
+  
+  // Update network layers list
+  networkLayers = Object.keys(networkMetrics).sort();
   
   // Check if data changed
   if (oldDataStr !== newDataStr) {
@@ -45,12 +87,13 @@ async function fetchMetrics() {
     metricsData = incomingData;
     xAxisMode = data.x_axis_mode || 'time';
 
-    const metricsList = data.metrics || [];
-    const metricsKey = metricsList.join('|');
+    const metricsKey = regularMetrics.join('|');
     if (metricsKey !== lastMetricsListKey) {
-      renderMetricList(metricsList);
+      renderMetricList(regularMetrics);
       lastMetricsListKey = metricsKey;
     }
+    
+    renderNetworkLayerList(networkMetrics);
 
     updatePlot();
     updateAxisLabel();
@@ -58,6 +101,10 @@ async function fetchMetrics() {
   // Also fetch and plot buffer stats
   if (selectedBufferPlots.size > 0) {
     fetchBufferStats();
+  }
+  // Update network plot if layer selected
+  if (selectedNetworkLayer) {
+    updateNetworkPlot();
   }
 }
 
@@ -100,6 +147,80 @@ async function fetchHparams() {
     } else {
       summary.textContent = '▶ Show hyperparameters';
     }
+  });
+}
+
+async function fetchVideos() {
+  try {
+    const res = await fetch(`/api/runs/${runId}/videos`);
+    const data = await res.json();
+    const videos = data.videos || [];
+    const key = videos.map(v => v.name + v.mtime).join('|');
+    if (key !== lastVideoKey) {
+      renderVideos(videos);
+      lastVideoKey = key;
+    }
+  } catch (error) {
+    console.error('Error fetching videos:', error);
+  }
+}
+
+function renderVideos(videos) {
+  const container = document.getElementById('videoList');
+  const emptyState = document.getElementById('videoEmptyState');
+  if (!container || !emptyState) return;
+
+  container.innerHTML = '';
+  if (!videos.length) {
+    emptyState.style.display = 'block';
+    return;
+  }
+  emptyState.style.display = 'none';
+
+  videos.forEach(video => {
+    const card = document.createElement('div');
+    card.className = 'video-card';
+
+    const title = document.createElement('div');
+    title.className = 'video-title';
+    title.textContent = video.name;
+
+    const videoEl = document.createElement('video');
+    videoEl.controls = true;
+    videoEl.preload = 'metadata';
+    videoEl.src = video.url;
+
+    const meta = document.createElement('div');
+    meta.className = 'video-meta';
+    const size = document.createElement('span');
+    size.textContent = formatBytes(video.size || 0);
+    const time = document.createElement('span');
+    if (video.mtime) {
+      const date = new Date(video.mtime * 1000);
+      time.textContent = date.toLocaleString();
+    }
+    meta.appendChild(size);
+    if (video.reward !== null && video.reward !== undefined) {
+      const reward = document.createElement('span');
+      reward.textContent = `Reward: ${Number(video.reward).toFixed(2)}`;
+      meta.appendChild(reward);
+    }
+    meta.appendChild(time);
+
+    const actions = document.createElement('div');
+    actions.className = 'video-actions';
+    const link = document.createElement('a');
+    link.href = video.url;
+    link.textContent = 'Open';
+    link.className = 'btn btn-small';
+    link.target = '_blank';
+    actions.appendChild(link);
+
+    card.appendChild(title);
+    card.appendChild(videoEl);
+    card.appendChild(meta);
+    card.appendChild(actions);
+    container.appendChild(card);
   });
 }
 
@@ -360,6 +481,170 @@ function filterMetrics(query) {
   });
 }
 
+function renderNetworkLayerList(networkMetrics) {
+  const container = document.getElementById('networkLayerList');
+  if (!container) return;
+  
+  container.innerHTML = '';
+  
+  if (networkLayers.length === 0) {
+    container.innerHTML = '<div class="muted" style="padding: 8px;">No network stats available</div>';
+    return;
+  }
+  
+  networkLayers.forEach(layerName => {
+    const item = document.createElement('div');
+    item.className = 'network-layer-item';
+    if (selectedNetworkLayer === layerName) {
+      item.classList.add('active');
+    }
+    
+    // Extract readable layer name
+    const parts = layerName.split('/');
+    const displayName = parts[parts.length - 1] || layerName;
+    const prefix = parts[0];
+    
+    const nameDiv = document.createElement('div');
+    nameDiv.className = 'layer-name';
+    nameDiv.textContent = displayName;
+    
+    const prefixDiv = document.createElement('div');
+    prefixDiv.className = 'layer-prefix';
+    prefixDiv.textContent = prefix;
+    
+    item.appendChild(nameDiv);
+    item.appendChild(prefixDiv);
+    item.onclick = () => selectNetworkLayer(layerName);
+    container.appendChild(item);
+  });
+}
+
+function selectNetworkLayer(layerName) {
+  selectedNetworkLayer = layerName;
+  renderNetworkLayerList({});
+  updateNetworkPlot();
+  updateNetworkPanelVisibility();
+}
+
+function updateNetworkPanelVisibility() {
+  const panel = document.getElementById('networkPanel');
+  if (!panel) return;
+  panel.style.display = selectedNetworkLayer ? 'block' : 'none';
+}
+
+function updateNetworkPlot() {
+  if (!selectedNetworkLayer || !networkMetricsData[selectedNetworkLayer]) {
+    return;
+  }
+  
+  const layerData = networkMetricsData[selectedNetworkLayer];
+  const metricTypes = Object.keys(layerData);
+  
+  // Group metrics by type (weight vs grad)
+  const weightMetrics = metricTypes.filter(m => 
+    m.startsWith('weight_') || m === 'stable_rank' || m === 'top_eigenvalue'
+  );
+  const gradMetrics = metricTypes.filter(m => m.startsWith('grad_'));
+  
+  const colors = ['#5b8cff', '#7ed3b2', '#f5c16c', '#f28b82', '#c792ea', '#80cbc4'];
+  const traces = [];
+  let colorIdx = 0;
+  
+  // Plot weight metrics
+  weightMetrics.forEach(metric => {
+    const data = layerData[metric];
+    if (!data || !data.steps || data.steps.length === 0) return;
+    
+    const xData = xAxisMode === 'time' ? data.times : data.steps;
+    traces.push({
+      x: xData,
+      y: data.values,
+      type: 'scatter',
+      mode: 'lines',
+      name: metric,
+      line: { width: 2, color: colors[colorIdx % colors.length] },
+      yaxis: 'y'
+    });
+    colorIdx++;
+  });
+  
+  // Build gradient traces
+  const gradTraces = [];
+  gradMetrics.forEach(metric => {
+    const data = layerData[metric];
+    if (!data || !data.steps || data.steps.length === 0) return;
+    
+    const xData = xAxisMode === 'time' ? data.times : data.steps;
+    gradTraces.push({
+      x: xData,
+      y: data.values,
+      type: 'scatter',
+      mode: 'lines',
+      name: metric,
+      line: { width: 2, color: colors[colorIdx % colors.length] }
+    });
+    colorIdx++;
+  });
+  
+  if (traces.length === 0 && gradTraces.length === 0) return;
+  
+  const xTitle = xAxisMode === 'time' ? 'Training Time (s)' : 'Environment Steps';
+  
+  const weightsDiv = document.getElementById('networkWeightsPlot');
+  const gradsDiv = document.getElementById('networkGradientsPlot');
+  const preserveWeights = !trackUpdates && weightsDiv.layout && weightsDiv.layout.xaxis && weightsDiv.layout.xaxis.range;
+  const preserveGrads = !trackUpdates && gradsDiv.layout && gradsDiv.layout.xaxis && gradsDiv.layout.xaxis.range;
+  
+  const weightsLayout = {
+    paper_bgcolor: '#151821',
+    plot_bgcolor: '#151821',
+    font: { color: '#e6e8ee' },
+    xaxis: { title: xTitle },
+    yaxis: { title: 'Weight Stats' },
+    margin: { t: 20, l: 60, r: 20, b: 40 },
+    legend: { orientation: 'h', y: 1.15 }
+  };
+  const gradsLayout = {
+    paper_bgcolor: '#151821',
+    plot_bgcolor: '#151821',
+    font: { color: '#e6e8ee' },
+    xaxis: { title: xTitle },
+    yaxis: { title: 'Gradient Stats' },
+    margin: { t: 20, l: 60, r: 20, b: 40 },
+    legend: { orientation: 'h', y: 1.15 }
+  };
+  
+  if (preserveWeights) {
+    weightsLayout.xaxis.range = weightsDiv.layout.xaxis.range;
+    weightsLayout.yaxis.range = weightsDiv.layout.yaxis.range;
+    weightsLayout.xaxis.autorange = false;
+    weightsLayout.yaxis.autorange = false;
+  }
+  if (preserveGrads) {
+    gradsLayout.xaxis.range = gradsDiv.layout.xaxis.range;
+    gradsLayout.yaxis.range = gradsDiv.layout.yaxis.range;
+    gradsLayout.xaxis.autorange = false;
+    gradsLayout.yaxis.autorange = false;
+  }
+  
+  const label = document.getElementById('networkLayerLabel');
+  if (label) {
+    label.textContent = `Layer: ${selectedNetworkLayer}`;
+  }
+  
+  Plotly.react('networkWeightsPlot', traces, weightsLayout, { responsive: true });
+  Plotly.react('networkGradientsPlot', gradTraces, gradsLayout, { responsive: true });
+}
+
+function filterNetworkLayers(query) {
+  const items = document.querySelectorAll('.network-layer-item');
+  const q = query.toLowerCase();
+  items.forEach(item => {
+    const text = item.textContent.toLowerCase();
+    item.style.display = text.includes(q) ? 'flex' : 'none';
+  });
+}
+
 function updateAxisLabel() {
   const label = document.getElementById('axisLabel');
   if (xAxisMode === 'time') {
@@ -480,6 +765,24 @@ function bindEvents() {
   });
   document.getElementById('saveNotesBtn').addEventListener('click', saveNotes);
   document.getElementById('toggleAxisBtn').addEventListener('click', toggleAxis);
+  const refreshVideosBtn = document.getElementById('refreshVideosBtn');
+  if (refreshVideosBtn) {
+    refreshVideosBtn.addEventListener('click', fetchVideos);
+  }
+  const toggleVideosBtn = document.getElementById('toggleVideosBtn');
+  if (toggleVideosBtn) {
+    toggleVideosBtn.addEventListener('click', toggleVideosPanel);
+  }
+  const memoryBtn = document.getElementById('memoryBtn');
+  if (memoryBtn) {
+    memoryBtn.addEventListener('click', toggleMemoryPanel);
+  }
+  const networkSearch = document.getElementById('networkSearch');
+  if (networkSearch) {
+    networkSearch.addEventListener('input', e => {
+      filterNetworkLayers(e.target.value);
+    });
+  }
   const btn = document.getElementById('trackUpdatesBtn');
   btn.textContent = trackUpdates ? 'Track Updates: ON' : 'Track Updates: OFF';
   btn.style.backgroundColor = trackUpdates ? '#7ed3b2' : '';
@@ -490,6 +793,72 @@ function bindEvents() {
   });
 }
 
+function toggleVideosPanel() {
+  videosCollapsed = !videosCollapsed;
+  const list = document.getElementById('videoList');
+  const empty = document.getElementById('videoEmptyState');
+  const btn = document.getElementById('toggleVideosBtn');
+  if (!list || !btn) return;
+  list.style.display = videosCollapsed ? 'none' : 'grid';
+  if (empty) {
+    empty.style.display = videosCollapsed ? 'none' : empty.style.display;
+  }
+  btn.textContent = videosCollapsed ? 'Expand' : 'Collapse';
+  if (!videosCollapsed) {
+    fetchVideos();
+  }
+}
+
+async function toggleMemoryPanel() {
+  const panel = document.getElementById('memoryPanel');
+  const btn = document.getElementById('memoryBtn');
+  if (!panel) return;
+  const isVisible = panel.style.display === 'block';
+  panel.style.display = isVisible ? 'none' : 'block';
+  if (btn) {
+    const title = btn.querySelector('h2');
+    if (title) {
+      title.textContent = isVisible ? 'Show memory usage ▸' : 'Hide memory usage ▾';
+    }
+  }
+  if (!isVisible) {
+    await fetchMemoryBreakdown();
+  }
+}
+
+async function fetchMemoryBreakdown() {
+  try {
+    const res = await fetch(`/api/runs/${runId}/storage`);
+    const data = await res.json();
+    renderMemoryBreakdown(data);
+  } catch (error) {
+    console.error('Error fetching memory breakdown:', error);
+  }
+}
+
+function renderMemoryBreakdown(data) {
+  const totalEl = document.getElementById('memoryTotal');
+  const breakdownEl = document.getElementById('memoryBreakdown');
+  if (!totalEl || !breakdownEl) return;
+
+  const total = data.total || 0;
+  totalEl.textContent = `Total: ${formatBytes(total)}`;
+
+  const breakdown = data.breakdown || {};
+  const entries = Object.entries(breakdown).sort((a, b) => b[1] - a[1]);
+  breakdownEl.innerHTML = entries
+    .map(([key, value]) => {
+      const pct = total > 0 ? ((value / total) * 100).toFixed(1) : '0.0';
+      return `
+        <div class="memory-row">
+          <span class="memory-label">${key}</span>
+          <span class="memory-value">${formatBytes(value)} (${pct}%)</span>
+        </div>
+      `;
+    })
+    .join('');
+}
+
 createPlot();
 bindEvents();
 renderBufferPlotList();
@@ -497,4 +866,6 @@ updateBufferPanelVisibility();
 fetchMetrics();
 fetchNotes();
 fetchHparams();
+fetchVideos();
 metricsInterval = setInterval(fetchMetrics, 2000);
+videosInterval = setInterval(fetchVideos, 10000);
