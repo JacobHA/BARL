@@ -76,7 +76,7 @@ class DQN(BaseAgent):
         if self.learn_env_steps % self.log_interval == 0:
             self.log_history("train/epsilon", self.epsilon, self.learn_env_steps)
 
-        # Periodically update the target nettarget_update_interval > 0 and self.work:
+        # Periodically update the target net
         if self.use_target_network and self.learn_env_steps % self.target_update_interval == 0:
             # Use Polyak averaging as specified:
             polyak(self.online_qs, self.target_qs, self.polyak_tau)
