@@ -435,7 +435,8 @@ function plotBufferStats(data) {
     }
     
     // Get current axis ranges if they exist (preserve zoom)
-    const preserveRange = !trackUpdates && histPlotDiv && histPlotDiv.layout && histPlotDiv.layout.xaxis && histPlotDiv.layout.xaxis.range;
+    // Check if plot has been initialized by Plotly (has data property)
+    const preserveRange = !trackUpdates && histPlotDiv && histPlotDiv.data && histPlotDiv.layout && histPlotDiv.layout.xaxis && histPlotDiv.layout.xaxis.range;
     
     const layout = {
       paper_bgcolor: '#151821',

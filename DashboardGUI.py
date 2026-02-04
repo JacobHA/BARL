@@ -315,7 +315,8 @@ class DashboardGUI:
                 return jsonify({"error": "Invalid path"}), 400
             if not os.path.isfile(safe_path):
                 return jsonify({"error": "Video not found"}), 404
-            return send_from_directory(video_dir_real, filename, as_attachment=False)
+            # Use the validated filename with send_from_directory
+            return send_from_directory(video_dir, filename, as_attachment=False)
 
         @self.app.route("/api/runs/<path:run_id>/files")
         def api_run_files(run_id: str):
