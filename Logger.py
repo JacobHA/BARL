@@ -192,5 +192,4 @@ class TensorboardLogger(BaseLogger):
 
     def close(self):
         """Close the TensorBoard writer."""
-        if hasattr(self, 'writer'):
-            self.writer.close()
+        self.writer.close()
