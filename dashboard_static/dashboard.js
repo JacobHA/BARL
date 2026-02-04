@@ -3,7 +3,7 @@ let selectedMetrics = new Set(['eval/avg_reward']);
 let allMetrics = [];
 let metricsData = {};
 let isPaused = false;
-let xAxisMode = 'time';  // 'time' or 'steps'
+let xAxisMode = 'steps';  // 'time' or 'steps'
 
 // Initialize dashboard
 document.addEventListener('DOMContentLoaded', function() {
@@ -20,92 +20,6 @@ function initializeDashboard() {
     createPlot();
 }
 
-function setupEventListeners() {
-    // Pause button
-    document.getElementById('pauseBtn').addEventListener('click', function() {
-        isPaused = !isPaused;
-        const btn = this;
-        if (isPaused) {
-            sendCommand('pause', {});
-            btn.textContent = '▶️ Resume';
-            btn.classList.remove('btn-warning');
-            btn.classList.add('btn-success');
-        } else {
-            sendCommand('resume', {});
-            btn.textContent = '⏸️ Pause';
-            btn.classList.remove('btn-success');
-            btn.classList.add('btn-warning');
-        }
-    });
-
-    // Evaluate button
-    document.getElementById('evaluateBtn').addEventListener('click', function() {
-        log('Starting evaluation...', 'info');
-        sendCommand('evaluate', {n_episodes: 10});
-    });
-
-    // Save button
-    document.getElementById('saveBtn').addEventListener('click', function() {
-        log('Saving model...', 'info');
-        sendCommand('save', {});
-    });
-    
-    // Toggle axis button
-    document.getElementById('toggleAxisBtn').addEventListener('click', async function() {
-        const response = await fetch('/api/axis/toggle', {method: 'POST'});
-        const result = await response.json();
-        xAxisMode = result.x_axis_mode;
-        
-        const btn = this;
-        if (xAxisMode === 'time') {
-            btn.textContent = '🕐 Show Steps';
-        } else {
-            btn.textContent = '👣 Show Time';
-        }
-        
-        updatePlot();
-        log(`X-axis switched to ${xAxisMode}`, 'info');
-    });
-
-    // Metric search
-    document.getElementById('metricSearch').addEventListener('input', function(e) {
-        filterMetrics(e.target.value);
-    });
-}
-
-function setLearningRate() {
-    const lr = document.getElementById('lrInput').value;
-    if (lr) {
-        sendCommand('set_learning_rate', {value: parseFloat(lr)});
-    }
-}
-
-function setEpsilon() {
-    const eps = document.getElementById('epsInput').value;
-    if (eps) {
-        sendCommand('set_epsilon', {value: parseFloat(eps)});
-    }
-}
-
-async function sendCommand(command, params) {
-    try {
-        const response = await fetch('/api/agent/command', {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({command, params})
-        });
-        const result = await response.json();
-        
-        if (result.success) {
-            log(result.result.message || 'Command executed', 'success');
-        } else {
-            log(result.error || 'Command failed', 'error');
-        }
-    } catch (error) {
-        log('Error sending command: ' + error, 'error');
-    }
-}
-
 async function fetchMetrics() {
     try {
         const response = await fetch('/api/metrics');
@@ -119,28 +33,6 @@ async function fetchMetrics() {
         updatePlot();
     } catch (error) {
         console.error('Error fetching metrics:', error);
-    }
-}
-
-async function updateAgentState() {
-    try {
-        const response = await fetch('/api/agent/state');
-        const state = await response.json();
-        
-        document.getElementById('stat-steps').textContent = state.learn_steps || 0;
-        document.getElementById('stat-episodes').textContent = state.num_episodes || 0;
-        document.getElementById('stat-lr').textContent = state.learning_rate ? state.learning_rate.toFixed(6) : '-';
-        document.getElementById('stat-epsilon').textContent = state.epsilon ? state.epsilon.toFixed(4) : '-';
-        
-        // Update input fields
-        if (state.learning_rate) {
-            document.getElementById('lrInput').value = state.learning_rate;
-        }
-        if (state.epsilon !== null) {
-            document.getElementById('epsInput').value = state.epsilon;
-        }
-    } catch (error) {
-        console.error('Error updating agent state:', error);
     }
 }
 
@@ -273,26 +165,7 @@ function updatePlot() {
 function startDataPolling() {
     setInterval(() => {
         fetchMetrics();
-        updateAgentState();
     }, 2000);
-}
-
-function connectEventStream() {
-    const eventSource = new EventSource('/api/stream');
-    
-    eventSource.onmessage = function(event) {
-        const data = JSON.parse(event.data);
-        // Update stats in real-time
-        if (data.agent_state) {
-            if (data.agent_state.epsilon !== null) {
-                document.getElementById('stat-epsilon').textContent = data.agent_state.epsilon.toFixed(4);
-            }
-        }
-    };
-    
-    eventSource.onerror = function(error) {
-        console.error('EventSource error:', error);
-    };
 }
 
 function log(message, type = 'info') {

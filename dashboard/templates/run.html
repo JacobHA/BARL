@@ -40,8 +40,12 @@
 
         <section class="panel">
           <div class="panel-header">
-            <h2>Network Stats</h2>
+            <h2>Parameter Stats</h2>
           </div>
+          <select id="networkViewSelect" class="input" style="margin-bottom: 8px;">
+            <option value="parameter" selected>Parameter Stats</option>
+            <option value="network">Network Stats</option>
+          </select>
           <input id="networkSearch" class="input" placeholder="Search layers" style="margin-bottom: 8px;" />
           <div id="networkLayerList" class="network-layer-list"></div>
         </section>
@@ -67,10 +71,10 @@
         </section>
 
         <section class="panel">
-          <div id="memoryBtn" class="panel-header memory-toggle">
-            <h2>Show memory usage ▸</h2>
+          <div class="panel-header">
+            <h2>Memory usage</h2>
           </div>
-          <div id="memoryPanel" class="memory-panel" style="display: none;">
+          <div id="memoryPanel" class="memory-panel">
             <div id="memoryTotal" class="memory-total"></div>
             <div id="memoryBreakdown" class="memory-breakdown"></div>
           </div>
@@ -95,7 +99,7 @@
 
         <section id="networkPanel" class="panel" style="display: none;">
           <div class="panel-header">
-            <h2>Network Statistics</h2>
+            <h2>Parameter Statistics</h2>
             <div class="muted" id="networkLayerLabel"></div>
           </div>
           <div class="network-stats-grid">
@@ -108,6 +112,14 @@
               <div id="networkGradientsPlot" class="plot" style="height: 300px;"></div>
             </div>
           </div>
+        </section>
+
+        <section id="networkOtherPanel" class="panel" style="display: none;">
+          <div class="panel-header">
+            <h2>Network Statistics</h2>
+            <div class="muted" id="networkOtherLabel"></div>
+          </div>
+          <div id="networkOtherPlot" class="plot" style="height: 300px;"></div>
         </section>
 
         <section class="panel">

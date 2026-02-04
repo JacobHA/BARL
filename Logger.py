@@ -176,12 +176,6 @@ class TensorboardLogger(BaseLogger):
             f.write(f"Timestamp: {time()}\nHyperparameters:\n")
             for param, value in hparam_dict.items():
                 f.write(f"{param}: {value}\n")
-        algo_name = hparam_dict.get("algo_name", "unknown")
-        with open(os.path.join(self.writer.log_dir, "algo_name.txt"), "w", encoding="utf-8") as f:
-            f.write(algo_name)
-        env_str = hparam_dict.get("env_str", "unknown")
-        with open(os.path.join(self.writer.log_dir, "env_str.txt"), "w", encoding="utf-8") as f:
-            f.write(env_str)
 
     def log_history(self, param, value, step):
         """Log history metric."""

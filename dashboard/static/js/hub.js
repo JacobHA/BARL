@@ -1,5 +1,6 @@
 let allRuns = [];
 let displayCount = 8;
+let pollInterval = null;
 
 const tbBrowseBtn = document.getElementById('tbBrowseBtn');
 const tbDirPicker = document.getElementById('tbDirPicker');
@@ -14,7 +15,29 @@ async function fetchRuns() {
   const res = await fetch('/api/runs');
   const data = await res.json();
   allRuns = data.runs || [];
+  console.log('Fetched runs:', allRuns.length, 'first run status:', allRuns[0]?.status);
   renderRuns();
+  adjustPollingRate();
+}
+
+function adjustPollingRate() {
+  // Check if any runs are active
+  const hasActiveRuns = allRuns.some(run => run.status === 'running');
+  console.log('Adjust polling - has active runs:', hasActiveRuns);
+  
+  // Clear existing interval
+  if (pollInterval) {
+    clearInterval(pollInterval);
+    pollInterval = null;
+  }
+  
+  // Only poll if there are active runs
+  if (hasActiveRuns) {
+    console.log('Starting polling (5s interval)');
+    pollInterval = setInterval(fetchRuns, 5000);
+  } else {
+    console.log('No active runs - polling stopped');
+  }
 }
 
 function renderRuns() {
@@ -28,7 +51,6 @@ function renderRuns() {
     return;
   }
 
-  const currentRun = window.__CURRENT_RUN__ || '';
   const runsToShow = allRuns.slice(0, displayCount);
   
   runsToShow.forEach(run => {
@@ -43,7 +65,10 @@ function renderRuns() {
       : run.algo_name 
         ? `${run.algo_name}: ${run.id}` 
         : run.id;
-    title.textContent = run.id === currentRun ? `${displayName} (current)` : displayName;
+    
+    // Add status indicator
+    const statusIndicator = run.status === 'running' ? ' 🟢' : '';
+    title.textContent = displayName + statusIndicator;
 
     card.appendChild(title);
     container.appendChild(card);
@@ -84,8 +109,8 @@ document.getElementById('loadMoreBtn').addEventListener('click', () => {
   renderRuns();
 });
 
+// Initial fetch and start adaptive polling
 fetchRuns();
-setInterval(fetchRuns, 5000);
 
 function formatBytes(bytes) {
   if (!Number.isFinite(bytes)) return 'unknown size';

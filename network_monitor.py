@@ -26,6 +26,10 @@ class EmptyMonitor:
     ) -> None:
         pass
 
+    @property
+    def networks_to_monitor(self) -> List[str]:
+        return []
+
     def reset(self) -> None:
         pass
 

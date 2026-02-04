@@ -23,7 +23,7 @@ if __name__ == "__main__":
     if port != base_port:
         print(f"Port {base_port} is in use, using {port} instead.")
 
-    hub = DashboardGUI(agent=None, base_log_dir="logs")
+    hub = DashboardGUI(base_log_dir="logs")
     hub.launch_dashboard_gui(port=port)
     print(f"Dashboard hub running at http://localhost:{port}")
     try:

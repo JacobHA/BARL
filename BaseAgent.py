@@ -124,8 +124,6 @@ class BaseAgent:
         )
         
         self.network_monitor = network_monitor if network_monitor is not None else EmptyMonitor()
-        self.named_networks = []
-
         self._n_updates = 0
 
     def log_hparams(self, hparam_dict):
@@ -166,65 +164,68 @@ class BaseAgent:
         """
         Train the agent for total_timesteps
         """
-        if self.network_monitor is not None and not hasattr(self, "monitor_samples"):
-            self._initialize_monitor_samples(n_samples=1000)
-        # Start a timer to log fps:
-        init_train_time = time.thread_time_ns()
-        self.learn_env_steps = 0
-        self.total_learn_env_steps = total_timesteps
-        with tqdm.tqdm(total=total_timesteps, desc="Training") as pbar:
+        # Write running status at start of training
+        self._write_status('running')
+        try:
+            if self.network_monitor is not None and not hasattr(self, "monitor_samples"):
+                self._initialize_monitor_samples(n_samples=1000)
+            # Start a timer to log fps:
+            init_train_time = time.thread_time_ns()
+            self.learn_env_steps = 0
+            self.total_learn_env_steps = total_timesteps
+            with tqdm.tqdm(total=total_timesteps, desc="Training") as pbar:
 
-            while self.learn_env_steps < total_timesteps:
-                state, _ = self.env.reset()
+                while self.learn_env_steps < total_timesteps:
+                    state, _ = self.env.reset()
 
-                done = False
-                self.num_episodes += 1
-                self.rollout_reward = 0
-                avg_ep_len = 0
-                while not done and self.learn_env_steps < total_timesteps:
-                    action = self.exploration_policy(state)
+                    done = False
+                    self.num_episodes += 1
+                    self.rollout_reward = 0
+                    avg_ep_len = 0
+                    while not done and self.learn_env_steps < total_timesteps:
+                        action = self.exploration_policy(state)
 
-                    next_state, reward, terminated, truncated, info = self.env.step(action)
-                    self._on_step()
-                    avg_ep_len += 1
-                    done = terminated or truncated
-                    self.rollout_reward += reward
+                        next_state, reward, terminated, truncated, info = self.env.step(action)
+                        self._on_step()
+                        avg_ep_len += 1
+                        done = terminated or truncated
+                        self.rollout_reward += reward
 
-                    self.train_this_step = (self.train_interval == -1 and terminated) or \
-                        (self.train_interval != -1 and self.learn_env_steps %
-                        self.train_interval == 0)
+                        self.train_this_step = (self.train_interval == -1 and terminated) or \
+                            (self.train_interval != -1 and self.learn_env_steps %
+                            self.train_interval == 0)
 
-                    # Add the transition to the replay buffer:
-                    action = np.array([action])
-                    self.buffer.add(state, action, reward, terminated)
-                    state = next_state
-                    if self.learn_env_steps % self.log_interval == 0:
-                        train_time = (time.thread_time_ns() - init_train_time) / 1e9
-                        train_fps = self.log_interval / train_time
-                        self.log_history('time/train_fps', train_fps, self.learn_env_steps)
-                        self.avg_eval_rwd = self.evaluate()
-                        # Log buffer statistics
-                        if hasattr(self.buffer, 'calculate_statistics'):
-                            buffer_stats = self.buffer.calculate_statistics()
-                            self.log_history('buffer/n_stored', buffer_stats['n_stored'], self.learn_env_steps)
-                            self.log_history('buffer/terminated_fraction', buffer_stats['terminated_fraction'], self.learn_env_steps)
-                            # Save reward histogram to a separate file
-                            for logger in self.loggers:
-                                if hasattr(logger, 'run_dir') and logger.run_dir:
-                                    histogram_path = os.path.join(logger.run_dir, 'reward_histogram.json')
-                                    with open(histogram_path, 'w') as f:
-                                        json.dump(buffer_stats['reward_histogram'], f)
-                                    break
-                        init_train_time = time.thread_time_ns()
-                        pbar.update(self.log_interval)
+                        # Add the transition to the replay buffer:
+                        action = np.array([action])
+                        self.buffer.add(state, action, reward, terminated)
+                        state = next_state
+                        if self.learn_env_steps % self.log_interval == 0:
+                            train_time = (time.thread_time_ns() - init_train_time) / 1e9
+                            train_fps = self.log_interval / train_time
+                            self.log_history('time/train_fps', train_fps, self.learn_env_steps)
+                            self.avg_eval_rwd = self.evaluate()
+                            # Log buffer statistics
+                            if hasattr(self.buffer, 'calculate_statistics'):
+                                buffer_stats = self.buffer.calculate_statistics()
+                                self.log_history('buffer/n_stored', buffer_stats['n_stored'], self.learn_env_steps)
+                                self.log_history('buffer/terminated_fraction', buffer_stats['terminated_fraction'], self.learn_env_steps)
+                                # Save reward histogram to a separate file
+                                for logger in self.loggers:
+                                    if hasattr(logger, 'run_dir') and logger.run_dir:
+                                        histogram_path = os.path.join(logger.run_dir, 'reward_histogram.json')
+                                        with open(histogram_path, 'w') as f:
+                                            json.dump(buffer_stats['reward_histogram'], f)
+                                        break
+                            init_train_time = time.thread_time_ns()
+                            pbar.update(self.log_interval)
 
-                if done:
-                    self.log_history("rollout/ep_reward", self.rollout_reward, self.learn_env_steps)
-                    self.log_history("rollout/avg_episode_length", avg_ep_len, self.learn_env_steps)
-                    self.log_history("train/num. episodes", self.num_episodes, self.learn_env_steps)
-        
-        # Cleanup after training completes
-        self._cleanup()
+                    if done:
+                        self.log_history("rollout/ep_reward", self.rollout_reward, self.learn_env_steps)
+                        self.log_history("rollout/avg_episode_length", avg_ep_len, self.learn_env_steps)
+                        self.log_history("train/num. episodes", self.num_episodes, self.learn_env_steps)
+        finally:
+            # Cleanup after training completes or is interrupted
+            self._cleanup()
  
     def _initialize_monitor_samples(self, n_samples: int = 1000) -> None:
         """Sample fixed random states/actions for network monitoring."""
@@ -236,11 +237,52 @@ class BaseAgent:
 
         self.monitor_samples = {"states": states, "actions": actions}
 
+    def _get_run_dir(self) -> Optional[str]:
+        """Get the run directory from loggers."""
+        for logger in self.loggers:
+            if hasattr(logger, 'run_dir') and logger.run_dir:
+                return logger.run_dir
+        return None
+    
+    def _write_status(self, status: str) -> None:
+        """Write run_data.json with status in run directory."""
+        run_dir = self._get_run_dir()
+        if run_dir:
+            self._write_run_data(status)
+    
+    def _write_run_data(self, status: str) -> None:
+        """Write run_data.json with metadata for dashboard organization."""
+        run_dir = self._get_run_dir()
+        if run_dir:
+            run_data_path = os.path.join(run_dir, 'run_data.json')
+            named_networks = []
+            monitor = self.network_monitor
+            if monitor is not None and hasattr(monitor, 'networks_to_monitor'):
+                networks_to_monitor = monitor.networks_to_monitor
+                if isinstance(networks_to_monitor, dict):
+                    named_networks = list(networks_to_monitor.keys())
+                elif isinstance(networks_to_monitor, (list, tuple, set)):
+                    named_networks = list(networks_to_monitor)
+            run_data = {
+                'algo_name': self.algo_name,
+                'env_str': self.env_str,
+                'status': status,
+                'named_networks': named_networks,
+            }
+            try:
+                with open(run_data_path, 'w') as f:
+                    json.dump(run_data, f)
+            except Exception as e:
+                print(f"Warning: Failed to write run_data.json: {e}")
+    
     def _cleanup(self) -> None:
         """
         Cleanup method called after training completes.
         Closes loggers and cleans up resources.
         """
+        # Write stopped status before cleanup
+        self._write_status('stopped')
+        
         # Terminate any background preloading processes in the buffer
         if hasattr(self, 'buffer'):
             self.buffer.cleanup()

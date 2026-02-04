@@ -1,24 +1,21 @@
 import json
 import os
-import queue
 import socket
 import threading
 import time
-from collections import defaultdict
 from typing import Any, Dict, List, Optional
 
-from flask import Flask, Response, jsonify, render_template, request, send_from_directory
+from flask import Flask, jsonify, render_template, request, send_from_directory
 from flask_cors import CORS
 
 
 class DashboardGUI:
     """
-    Modular web dashboard for visualizing and controlling RL agent training.
-    Acts as a hub for multiple runs with notes and file access.
+    Web dashboard for visualizing and monitoring RL agent training runs.
+    Runs independently and allows browsing multiple training runs via directory selection.
     """
 
-    def __init__(self, agent=None, base_log_dir: str = "logs"):
-        self.agent = agent
+    def __init__(self, base_log_dir: str = "logs"):
         self.app = None
         self.server_thread = None
         self.is_running = False
@@ -31,25 +28,12 @@ class DashboardGUI:
         self.base_log_dir = os.path.abspath(os.path.join(self.base_dir, base_log_dir))
         self.uploaded_log_dir = os.path.abspath(os.path.join(self.base_dir, "uploaded_logs"))
 
-        self.metrics_data = defaultdict(lambda: {"steps": [], "values": [], "times": []})
-        self.available_metrics = set()
-        self.x_axis_mode = "time"  # "time", "steps", or "episodes"
+        self.x_axis_mode = "steps"  # "time", "steps", or "episodes"
 
-        self.command_queue = queue.Queue()
-        self.agent_state = {
-            "paused": False,
-            "learning_rate": getattr(agent, "learning_rate", None) if agent else None,
-            "epsilon": getattr(agent, "epsilon", None) if agent else None,
-            "total_steps": 0,
-        }
-        
         # Cache for runs list to avoid rescanning directories too frequently
         self._runs_cache = None
         self._runs_cache_time = 0
         self._runs_cache_ttl = 2.0  # Cache for 2 seconds
-
-        self.current_run_dir = self._resolve_current_run_dir()
-        self.current_run_id = self._resolve_current_run_id()
 
         self._initialize_app()
 
@@ -65,32 +49,7 @@ class DashboardGUI:
         # Ensure uploaded logs directory exists
         os.makedirs(self.uploaded_log_dir, exist_ok=True)
 
-    def _resolve_current_run_dir(self) -> Optional[str]:
-        if not self.agent:
-            return None
-        for logger in getattr(self.agent, "loggers", []):
-            run_dir = getattr(logger, "run_dir", None)
-            if run_dir:
-                return os.path.abspath(run_dir)
-        return None
 
-    def _resolve_current_run_id(self) -> Optional[str]:
-        if not self.current_run_dir:
-            # Try to find most recent run (history.json modified within last 10 seconds)
-            # Force bypass cache to get fresh filesystem data for current run detection
-            runs = self._list_runs(use_cache=False)
-            current_time = time.time()
-            for run in runs:
-                # Check history.json modification time instead of directory
-                history_path = os.path.join(run["path"], "history.json")
-                if os.path.exists(history_path):
-                    history_mtime = os.path.getmtime(history_path)
-                    if current_time - history_mtime < 10:
-                        return run["id"]
-            return None
-        if self.current_run_dir.startswith(self.base_log_dir + os.sep):
-            return os.path.relpath(self.current_run_dir, self.base_log_dir)
-        return os.path.basename(self.current_run_dir)
 
     def _is_port_in_use(self, port: int) -> bool:
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
@@ -103,49 +62,27 @@ class DashboardGUI:
             return render_template(
                 "index.html",
                 runs=self._list_runs(),
-                current_run_id=self.current_run_id,
             )
 
         @self.app.route("/run/<path:run_id>")
         def run_view(run_id: str):
-            # Read algo_name and env_str from the run directory
-            run_dir = self._run_dir_from_id(run_id)
-            algo_name = "N/A"
-            env_name = "N/A"
-            
-            if run_dir:
-                algo_name_path = os.path.join(run_dir, "algo_name.txt")
-                if os.path.exists(algo_name_path):
-                    try:
-                        with open(algo_name_path, "r") as f:
-                            algo_name = f.read().strip()
-                    except Exception:
-                        pass
-                
-                env_str_path = os.path.join(run_dir, "env_str.txt")
-                if os.path.exists(env_str_path):
-                    try:
-                        with open(env_str_path, "r") as f:
-                            env_name = f.read().strip()
-                    except Exception:
-                        pass
+            # Read algo_name and env_str from run_data.json
+            run_data = self._load_run_data(run_id)
+            algo_name = run_data.get("algo_name", "N/A")
+            env_name = run_data.get("env_str", "N/A")
             
             return render_template(
                 "run.html",
                 run_id=run_id,
-                current_run_id=self.current_run_id,
                 env_name=env_name,
                 agent_class=algo_name,
             )
 
         @self.app.route("/api/runs")
         def api_runs():
-            # Update current run ID dynamically
-            self.current_run_id = self._resolve_current_run_id()
             return jsonify(
                 {
                     "runs": self._list_runs(),
-                    "current_run_id": self.current_run_id,
                 }
             )
 
@@ -212,27 +149,32 @@ class DashboardGUI:
 
         @self.app.route("/api/runs/<path:run_id>/metrics")
         def api_run_metrics(run_id: str):
-            # Always load from history.json file
+            # Load from history.json file
             data = self._load_history_from_run(run_id)
             
-            # If this is the current run with an active agent, also collect from loggers
-            if self._is_current_run(run_id):
-                self._collect_metrics_from_loggers()
-                # Merge logger data with history data
-                for metric, vals in self.metrics_data.items():
-                    data[metric] = {
-                        "steps": list(vals["steps"]),
-                        "values": list(vals["values"]),
-                        "times": list(vals["times"]),
-                    }
+            # Load run_data.json to get named_networks for categorization
+            run_data = self._load_run_data(run_id)
+            named_networks = run_data.get('named_networks', [])
+            
+            # Categorize metrics
+            categorized = self._categorize_metrics(list(data.keys()), named_networks)
 
             return jsonify(
                 {
                     "metrics": sorted(list(data.keys())),
+                    "categorized_metrics": categorized,
                     "x_axis_mode": self.x_axis_mode,
                     "data": data,
                 }
             )
+
+        @self.app.route("/api/runs/<path:run_id>/status")
+        def api_run_status(run_id: str):
+            run_dir = self._run_dir_from_id(run_id)
+            if not run_dir:
+                return jsonify({"error": "Run not found"}), 404
+            status = self._get_run_status(run_dir)
+            return jsonify({"status": status})
 
         @self.app.route("/api/runs/<path:run_id>/notes", methods=["GET", "POST"])
         def api_run_notes(run_id: str):
@@ -388,36 +330,6 @@ class DashboardGUI:
                     })
             return jsonify({"files": files})
 
-        @self.app.route("/api/agent/state")
-        def get_agent_state():
-            if not self.agent:
-                return jsonify({})
-            self.agent_state.update(
-                {
-                    "learning_rate": getattr(self.agent, "learning_rate", None),
-                    "epsilon": getattr(self.agent, "epsilon", None),
-                    "total_steps": getattr(self.agent, "total_env_steps", 0),
-                    "learn_steps": getattr(self.agent, "learn_env_steps", 0),
-                    "num_episodes": getattr(self.agent, "num_episodes", 0),
-                }
-            )
-            return jsonify(self.agent_state)
-
-        @self.app.route("/api/agent/command", methods=["POST"])
-        def send_command():
-            if not self.agent:
-                return jsonify({"error": "No agent attached"}), 400
-            data = request.get_json() or {}
-            command = data.get("command")
-            params = data.get("params", {})
-
-            if not command:
-                return jsonify({"error": "No command provided"}), 400
-
-            self.command_queue.put({"command": command, "params": params})
-            result = self._execute_command(command, params)
-            return jsonify({"success": True, "result": result})
-
         @self.app.route("/api/axis/toggle", methods=["POST"])
         def toggle_axis():
             if self.x_axis_mode == "time":
@@ -428,50 +340,7 @@ class DashboardGUI:
                 self.x_axis_mode = "time"
             return jsonify({"x_axis_mode": self.x_axis_mode})
 
-        @self.app.route("/api/stream")
-        def stream():
-            if not self.agent:
-                return Response("", mimetype="text/event-stream")
-            def event_stream():
-                last_step = 0
-                while self.is_running:
-                    self._collect_metrics_from_loggers()
-                    current_step = getattr(self.agent, "learn_env_steps", 0)
 
-                    if current_step > last_step:
-                        data = {
-                            "step": current_step,
-                            "metrics": {
-                                metric: {
-                                    "latest": vals["values"][-1] if vals["values"] else None
-                                }
-                                for metric, vals in self.metrics_data.items()
-                            },
-                            "agent_state": {
-                                "epsilon": getattr(self.agent, "epsilon", None),
-                                "learning_rate": getattr(self.agent, "learning_rate", None),
-                            },
-                        }
-                        yield f"data: {json.dumps(data)}\n\n"
-                        last_step = current_step
-
-                    time.sleep(1)
-
-            return Response(event_stream(), mimetype="text/event-stream")
-
-    def _is_current_run(self, run_id: str) -> bool:
-        # First check if this is the agent's own run
-        if self.current_run_id is not None and run_id == self.current_run_id:
-            return True
-        # Also check if this run has been updated recently (within 10 seconds)
-        run_dir = self._run_dir_from_id(run_id)
-        if run_dir:
-            history_path = os.path.join(run_dir, "history.json")
-            if os.path.exists(history_path):
-                history_mtime = os.path.getmtime(history_path)
-                if time.time() - history_mtime < 10:
-                    return True
-        return False
 
     def _run_dir_from_id(self, run_id: str) -> Optional[str]:
         if run_id.startswith("uploaded/"):
@@ -484,6 +353,19 @@ class DashboardGUI:
         if os.path.isdir(run_dir) and run_dir.startswith(self.base_log_dir):
             return run_dir
         return None
+
+    def _get_run_status(self, run_dir: str) -> str:
+        """Get the status of a run from run_data.json."""
+        run_data_path = os.path.join(run_dir, "run_data.json")
+        if os.path.exists(run_data_path):
+            try:
+                with open(run_data_path, "r") as f:
+                    data = json.load(f)
+                status = data.get("status", "stopped")
+                return status if status in ["running", "stopped"] else "stopped"
+            except Exception:
+                pass
+        return "stopped"
 
     def _list_runs(self, use_cache: bool = True) -> List[Dict[str, Any]]:
         # Check cache first
@@ -499,24 +381,14 @@ class DashboardGUI:
             for name in sorted(os.listdir(root_dir)):
                 path = os.path.join(root_dir, name)
                 if not os.path.isdir(path):
-                    continue
-                algo_name_path = os.path.join(path, "algo_name.txt")
-                algo_name = "unknown"
-                if os.path.exists(algo_name_path):
-                    try:
-                        with open(algo_name_path, "r") as f:
-                            algo_name = f.read().strip()
-                    except Exception:
-                        pass
-                env_str_path = os.path.join(path, "env_str.txt")
-                env_str = "unknown"
-                if os.path.exists(env_str_path):
-                    try:
-                        with open(env_str_path, "r") as f:
-                            env_str = f.read().strip()
-                    except Exception:
-                        pass
                 run_id = f"{prefix}/{name}" if prefix else name
+                run_data = self._load_run_data(run_id)
+                algo_name = run_data.get("algo_name", "unknown")
+                env_str = run_data.get("env_str", "unknown")
+                status = run_data.get("status", "stopped")
+                if status not in ["running", "stopped"]:
+                    status = "stopped"ix else name
+                status = self._get_run_status(path)
                 runs.append(
                     {
                         "id": run_id,
@@ -524,6 +396,7 @@ class DashboardGUI:
                         "algo_name": algo_name,
                         "env_str": env_str,
                         "mtime": os.path.getmtime(path),
+                        "status": status,
                     }
                 )
 
@@ -652,7 +525,7 @@ class DashboardGUI:
                     totals["models"] += size
                 elif lower.endswith((".png", ".jpg", ".jpeg", ".gif", ".webp")):
                     totals["images"] += size
-                elif lower.endswith((".json", ".tfevents", ".event", ".events")) or "history.json" in lower:
+                elif lower.endswith((".json", ".event", ".events")) or "history.json" in lower or "tfevents" in lower:
                     totals["metrics"] += size
                 elif rel == "notes.md":
                     totals["notes"] += size
@@ -664,38 +537,60 @@ class DashboardGUI:
             "breakdown": totals,
         }
 
-    def _execute_command(self, command: str, params: Dict[str, Any]) -> Dict[str, Any]:
+    def _load_run_data(self, run_id: str) -> Dict[str, Any]:
+        """Load run_data.json which contains named_networks and other metadata."""
+        run_dir = self._run_dir_from_id(run_id)
+        if not run_dir:
+            return {}
+        
+        run_data_path = os.path.join(run_dir, "run_data.json")
+        if not os.path.exists(run_data_path):
+            return {}
+        
         try:
-            if command == "evaluate":
-                n_episodes = int(params.get("n_episodes", 10))
-                avg_reward = self.agent.evaluate(n_episodes=n_episodes)
-                return {"message": f"Evaluation complete: {avg_reward:.2f}", "reward": avg_reward}
+            with open(run_data_path, "r") as f:
+                return json.load(f)
+        except Exception:
+            return {}
 
-            if command == "save":
-                path = params.get("path", f"./checkpoints/{self.agent.__class__.__name__}_checkpoint.pt")
-                self.agent.save(path)
-                return {"message": f"Model saved to {path}"}
-
-            return {"error": f"Unknown command: {command}"}
-        except Exception as e:
-            return {"error": str(e)}
-
-    def _collect_metrics_from_loggers(self):
-        if not self.agent:
-            return
-        for logger in getattr(self.agent, "loggers", []):
-            if hasattr(logger, "history") and logger.history:
-                for metric_name, values in logger.history.items():
-                    self.available_metrics.add(metric_name)
-                    if metric_name not in self.metrics_data:
-                        self.metrics_data[metric_name] = {"steps": [], "values": [], "times": []}
-                    current_steps = set(self.metrics_data[metric_name]["steps"])
-                    for step, value, timestamp in values:
-                        if step not in current_steps:
-                            self.metrics_data[metric_name]["steps"].append(step)
-                            self.metrics_data[metric_name]["values"].append(value)
-                            self.metrics_data[metric_name]["times"].append(timestamp)
-                            current_steps.add(step)
+    def _categorize_metrics(self, metrics: List[str], named_networks: List[str]) -> Dict[str, List[str]]:
+        """
+        Categorize metrics into:
+        - Training stats (C): anything not in network or buffer stats
+        - Buffer stats (B): anything with *buffer*/*
+        - Network stats (A): anything starting with a named network prefix
+        
+        Returns dict with keys 'training', 'buffer', 'network' in that order.
+        """
+        training = []
+        buffer = []
+        network = []
+        
+        for metric in metrics:
+            # Check if it's a network metric (starts with a named network prefix)
+            is_network = False
+            for net_name in named_networks:
+                if metric.startswith(f"{net_name}/"):
+                    network.append(metric)
+                    is_network = True
+                    break
+            
+            if is_network:
+                continue
+            
+            # Check if it's a buffer metric (contains 'buffer')
+            if 'buffer' in metric:
+                buffer.append(metric)
+                continue
+            
+            # Everything else is training
+            training.append(metric)
+        
+        return {
+            'training': sorted(training),
+            'buffer': sorted(buffer),
+            'network': sorted(network),
+        }
 
     def launch_dashboard_gui(self, port: int = 8050):
         if self.is_running:
@@ -711,17 +606,12 @@ class DashboardGUI:
             self.is_running = True
             print(f"\n{'=' * 70}")
             print(f"🚀 Dashboard Hub: http://localhost:{port}")
-            if self.current_run_id:
-                print(f"   Current run: {self.current_run_id}")
             print(f"{'=' * 70}\n")
             self.app.run(debug=False, port=port, use_reloader=False, threaded=True)
 
         self.server_thread = threading.Thread(target=run_server, daemon=True)
         self.server_thread.start()
         time.sleep(1)
-
-    def update_dashboard_gui(self, data: dict) -> None:
-        pass
 
     def stop(self):
         self.is_running = False
@@ -730,10 +620,8 @@ class DashboardGUI:
 
 
 if __name__ == "__main__":
-    print("This module requires an agent instance to run.")
+    print("Dashboard GUI")
     print("Example usage:")
-    print("  from DQN import DQN")
-    print("  agent = DQN('CartPole-v1')")
-    print("  agent.launch_dashboard_gui(port=8050)")
-    print("  agent.learn(total_timesteps=10000)")
+    print("  dashboard = DashboardGUI(base_log_dir='logs')")
+    print("  dashboard.launch_dashboard_gui(port=8050)")
     

@@ -9,11 +9,14 @@ let xAxisMode = 'time';
 let lastDataUpdateTime = Date.now();
 let metricsInterval = null;
 let videosInterval = null;
-let isRunActive = true;
+let statusInterval = null;
+let isRunActive = false; // Start as false, will be set by status check
 let trackUpdates = true; // When false, enable zoom preservation
 let lastVideoKey = '';
 let networkLayers = [];
 let networkMetricsData = {};
+let categorizedMetrics = { training: [], buffer: [], network: [] };
+let networkViewMode = 'parameter';
 let videosCollapsed = false;
 
 const runId = window.__RUN_ID__;
@@ -23,6 +26,43 @@ const bufferPlotOptions = [
   { id: 'reward_histogram', label: 'Reward Histogram' }
 ];
 
+async function checkRunStatus() {
+  try {
+    const res = await fetch(`/api/runs/${runId}/status`);
+    const data = await res.json();
+    const wasActive = isRunActive;
+    isRunActive = data.status === 'running';
+    
+    // If status changed, adjust polling
+    if (wasActive !== isRunActive) {
+      adjustPolling();
+    }
+  } catch (e) {
+    console.error('Failed to check run status:', e);
+  }
+}
+
+function adjustPolling() {
+  // Clear existing intervals
+  if (metricsInterval) {
+    clearInterval(metricsInterval);
+    metricsInterval = null;
+  }
+  if (videosInterval) {
+    clearInterval(videosInterval);
+    videosInterval = null;
+  }
+  
+  // Only start polling if run is active
+  if (isRunActive) {
+    console.log('Run is active. Starting polling.');
+    metricsInterval = setInterval(fetchMetrics, 2000);
+    videosInterval = setInterval(fetchVideos, 10000);
+  } else {
+    console.log('Run is not active. Polling stopped.');
+  }
+}
+
 async function fetchMetrics() {
   const res = await fetch(`/api/runs/${runId}/metrics`);
   const data = await res.json();
@@ -30,56 +70,9 @@ async function fetchMetrics() {
   const oldDataStr = JSON.stringify(metricsData);
   const newDataStr = JSON.stringify(incomingData);
   
-  // Separate network metrics from regular metrics
-  const regularMetrics = [];
-  const networkMetrics = {};
-  
-  for (const metric of (data.metrics || [])) {
-    if (metric.includes('/weight_') || metric.includes('/grad_') || 
-      metric.includes('/stable_rank') || metric.includes('/top_eigenvalue') ||
-      metric.includes('/weight_spectral_norm')) {
-      // This is a network metric - extract layer info
-      const parts = metric.split('/');
-      if (parts.length >= 3) {
-        const prefix = parts[0]; // e.g., "critic", "actor"
-        const layerName = parts.slice(1, -1).join('/'); // e.g., "0", "2"
-        const metricType = parts[parts.length - 1]; // e.g., "weight_norm"
-        const fullLayer = `${prefix}/${layerName}`;
-        
-        if (!networkMetrics[fullLayer]) {
-          networkMetrics[fullLayer] = new Set();
-        }
-        networkMetrics[fullLayer].add(metricType);
-        
-        // Store data under network metrics
-        if (!networkMetricsData[fullLayer]) {
-          networkMetricsData[fullLayer] = {};
-        }
-        networkMetricsData[fullLayer][metricType] = incomingData[metric];
-      }
-    } else {
-      regularMetrics.push(metric);
-    }
-  }
-  
-  // Update network layers list
-  networkLayers = Object.keys(networkMetrics).sort();
-  
   // Check if data changed
   if (oldDataStr !== newDataStr) {
     lastDataUpdateTime = Date.now();
-    isRunActive = true;
-  } else {
-    // If no new data for 30 seconds, consider run inactive
-    if (Date.now() - lastDataUpdateTime > 30000 && isRunActive) {
-      isRunActive = false;
-      console.log('Run appears to be complete. Slowing down updates.');
-      // Clear fast interval and set slower one
-      if (metricsInterval) {
-        clearInterval(metricsInterval);
-        metricsInterval = setInterval(fetchMetrics, 10000); // Check every 10s instead
-      }
-    }
   }
   
   // Only update visuals if we actually have data to show
@@ -87,14 +80,43 @@ async function fetchMetrics() {
     metricsData = incomingData;
     xAxisMode = data.x_axis_mode || 'time';
 
-    const metricsKey = regularMetrics.join('|');
+    // Use categorized metrics from API (Training, Buffer, Network)
+    const categorized = data.categorized_metrics || {
+      training: [],
+      buffer: [],
+      network: []
+    };
+    categorizedMetrics = categorized;
+
+    // Build network layers/metrics from categorized.network
+    const networkMetrics = {};
+    networkMetricsData = {};
+    for (const metric of categorized.network || []) {
+      const parts = metric.split('/');
+      if (parts.length < 3) continue;
+      const metricType = parts[parts.length - 1];
+      const fullLayer = parts.slice(0, -1).join('/');
+
+      if (!networkMetrics[fullLayer]) {
+        networkMetrics[fullLayer] = new Set();
+      }
+      networkMetrics[fullLayer].add(metricType);
+
+      if (!networkMetricsData[fullLayer]) {
+        networkMetricsData[fullLayer] = {};
+      }
+      networkMetricsData[fullLayer][metricType] = incomingData[metric];
+    }
+    networkLayers = Object.keys(networkMetrics).sort();
+
+    // Render metrics list with Training stats only
+    const metricsKey = JSON.stringify(categorized.training || []);
     if (metricsKey !== lastMetricsListKey) {
-      renderMetricList(regularMetrics);
+      renderMetricList(categorized.training || []);
       lastMetricsListKey = metricsKey;
     }
-    
-    renderNetworkLayerList(networkMetrics);
 
+    renderNetworkLayerList(networkMetrics);
     updatePlot();
     updateAxisLabel();
   }
@@ -102,7 +124,6 @@ async function fetchMetrics() {
   if (selectedBufferPlots.size > 0) {
     fetchBufferStats();
   }
-  // Update network plot if layer selected
   if (selectedNetworkLayer) {
     updateNetworkPlot();
   }
@@ -469,7 +490,7 @@ function toggleMetric(metric) {
   } else {
     selectedMetrics.add(metric);
   }
-  renderMetricList(Object.keys(metricsData));
+  renderMetricList(categorizedMetrics.training || []);
   updatePlot();
 }
 
@@ -528,8 +549,12 @@ function selectNetworkLayer(layerName) {
 
 function updateNetworkPanelVisibility() {
   const panel = document.getElementById('networkPanel');
+  const otherPanel = document.getElementById('networkOtherPanel');
   if (!panel) return;
   panel.style.display = selectedNetworkLayer ? 'block' : 'none';
+  if (otherPanel) {
+    otherPanel.style.display = (selectedNetworkLayer && networkViewMode === 'network') ? 'block' : 'none';
+  }
 }
 
 function updateNetworkPlot() {
@@ -545,6 +570,13 @@ function updateNetworkPlot() {
     m.startsWith('weight_') || m === 'stable_rank' || m === 'top_eigenvalue'
   );
   const gradMetrics = metricTypes.filter(m => m.startsWith('grad_'));
+  const otherMetrics = metricTypes.filter(m =>
+    !m.startsWith('weight_') &&
+    !m.startsWith('grad_') &&
+    m !== 'stable_rank' &&
+    m !== 'top_eigenvalue' &&
+    m !== 'weight_spectral_norm'
+  );
   
   const colors = ['#5b8cff', '#7ed3b2', '#f5c16c', '#f28b82', '#c792ea', '#80cbc4'];
   const traces = [];
@@ -585,15 +617,37 @@ function updateNetworkPlot() {
     });
     colorIdx++;
   });
+
+  // Build other network stats traces
+  const otherTraces = [];
+  otherMetrics.forEach(metric => {
+    const data = layerData[metric];
+    if (!data || !data.steps || data.steps.length === 0) return;
+
+    const xData = xAxisMode === 'time' ? data.times : data.steps;
+    otherTraces.push({
+      x: xData,
+      y: data.values,
+      type: 'scatter',
+      mode: 'lines',
+      name: metric,
+      line: { width: 2, color: colors[colorIdx % colors.length] }
+    });
+    colorIdx++;
+  });
   
-  if (traces.length === 0 && gradTraces.length === 0) return;
+  if (traces.length === 0 && gradTraces.length === 0 && otherTraces.length === 0) return;
   
   const xTitle = xAxisMode === 'time' ? 'Training Time (s)' : 'Environment Steps';
   
   const weightsDiv = document.getElementById('networkWeightsPlot');
   const gradsDiv = document.getElementById('networkGradientsPlot');
+  const otherDiv = document.getElementById('networkOtherPlot');
+  const otherPanel = document.getElementById('networkOtherPanel');
+  const otherLabel = document.getElementById('networkOtherLabel');
   const preserveWeights = !trackUpdates && weightsDiv.layout && weightsDiv.layout.xaxis && weightsDiv.layout.xaxis.range;
   const preserveGrads = !trackUpdates && gradsDiv.layout && gradsDiv.layout.xaxis && gradsDiv.layout.xaxis.range;
+  const preserveOther = !trackUpdates && otherDiv && otherDiv.layout && otherDiv.layout.xaxis && otherDiv.layout.xaxis.range;
   
   const weightsLayout = {
     paper_bgcolor: '#151821',
@@ -613,6 +667,15 @@ function updateNetworkPlot() {
     margin: { t: 20, l: 60, r: 20, b: 40 },
     legend: { orientation: 'h', y: 1.15 }
   };
+  const otherLayout = {
+    paper_bgcolor: '#151821',
+    plot_bgcolor: '#151821',
+    font: { color: '#e6e8ee' },
+    xaxis: { title: xTitle },
+    yaxis: { title: 'Network Stats' },
+    margin: { t: 20, l: 60, r: 20, b: 40 },
+    legend: { orientation: 'h', y: 1.15 }
+  };
   
   if (preserveWeights) {
     weightsLayout.xaxis.range = weightsDiv.layout.xaxis.range;
@@ -626,6 +689,13 @@ function updateNetworkPlot() {
     gradsLayout.xaxis.autorange = false;
     gradsLayout.yaxis.autorange = false;
   }
+
+  if (preserveOther) {
+    otherLayout.xaxis.range = otherDiv.layout.xaxis.range;
+    otherLayout.yaxis.range = otherDiv.layout.yaxis.range;
+    otherLayout.xaxis.autorange = false;
+    otherLayout.yaxis.autorange = false;
+  }
   
   const label = document.getElementById('networkLayerLabel');
   if (label) {
@@ -634,6 +704,25 @@ function updateNetworkPlot() {
   
   Plotly.react('networkWeightsPlot', traces, weightsLayout, { responsive: true });
   Plotly.react('networkGradientsPlot', gradTraces, gradsLayout, { responsive: true });
+
+  if (otherDiv && otherPanel && networkViewMode === 'network') {
+    if (otherTraces.length > 0) {
+      otherPanel.style.display = 'block';
+      if (otherLabel) otherLabel.textContent = selectedNetworkLayer;
+      Plotly.react('networkOtherPlot', otherTraces, otherLayout, { responsive: true });
+    } else {
+      otherPanel.style.display = 'none';
+    }
+  }
+}
+
+const networkViewSelect = document.getElementById('networkViewSelect');
+if (networkViewSelect) {
+  networkViewSelect.addEventListener('change', (e) => {
+    networkViewMode = e.target.value === 'network' ? 'network' : 'parameter';
+    updateNetworkPanelVisibility();
+    updateNetworkPlot();
+  });
 }
 
 function filterNetworkLayers(query) {
@@ -773,10 +862,7 @@ function bindEvents() {
   if (toggleVideosBtn) {
     toggleVideosBtn.addEventListener('click', toggleVideosPanel);
   }
-  const memoryBtn = document.getElementById('memoryBtn');
-  if (memoryBtn) {
-    memoryBtn.addEventListener('click', toggleMemoryPanel);
-  }
+  fetchMemoryBreakdown();
   const networkSearch = document.getElementById('networkSearch');
   if (networkSearch) {
     networkSearch.addEventListener('input', e => {
@@ -806,23 +892,6 @@ function toggleVideosPanel() {
   btn.textContent = videosCollapsed ? 'Expand' : 'Collapse';
   if (!videosCollapsed) {
     fetchVideos();
-  }
-}
-
-async function toggleMemoryPanel() {
-  const panel = document.getElementById('memoryPanel');
-  const btn = document.getElementById('memoryBtn');
-  if (!panel) return;
-  const isVisible = panel.style.display === 'block';
-  panel.style.display = isVisible ? 'none' : 'block';
-  if (btn) {
-    const title = btn.querySelector('h2');
-    if (title) {
-      title.textContent = isVisible ? 'Show memory usage ▸' : 'Hide memory usage ▾';
-    }
-  }
-  if (!isVisible) {
-    await fetchMemoryBreakdown();
   }
 }
 
@@ -859,13 +928,19 @@ function renderMemoryBreakdown(data) {
     .join('');
 }
 
+
 createPlot();
 bindEvents();
 renderBufferPlotList();
 updateBufferPanelVisibility();
-fetchMetrics();
-fetchNotes();
-fetchHparams();
-fetchVideos();
-metricsInterval = setInterval(fetchMetrics, 2000);
-videosInterval = setInterval(fetchVideos, 10000);
+// Initial load with status check
+checkRunStatus().then(() => {
+  fetchMetrics();
+  fetchNotes();
+  fetchHparams();
+  fetchVideos();
+  adjustPolling();
+});
+
+// Check status every 5 seconds to detect when run starts/stops
+statusInterval = setInterval(checkRunStatus, 5000);

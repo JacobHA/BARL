@@ -317,13 +317,6 @@ body {
   text-transform: capitalize;
 }
 
-.memory-toggle {
-  cursor: pointer;
-}
-
-.memory-toggle:hover {
-  border-color: var(--accent);
-}
 
 @media (max-width: 1024px) {
   .layout { grid-template-columns: 1fr; }
