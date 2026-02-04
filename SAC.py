@@ -4,7 +4,7 @@ import torch
 from BaseAgent import BaseAgent, get_new_params
 from network_monitor import NetworkMonitorCallback, create_monitor_for_agent
 from utils import polyak
-from Architectures import make_gaussian_actor
+from Architectures import make_gaussian_actor, make_sac_critic_mlp
 
 # TODO There is a big question about how to correctly specify different architectures. how do we allow for shared backbones?
 
