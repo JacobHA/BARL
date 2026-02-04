@@ -4,7 +4,7 @@ import torch
 from BaseAgent import BaseAgent, get_new_params
 from network_monitor import NetworkMonitorCallback, create_monitor_for_agent
 from utils import polyak
-from Architectures import DummyActor, make_gaussian_actor, make_mlp, make_sac_critic_mlp, make_sac_spectralnorm_critic_mlp
+from Architectures import DummyActor, make_gaussian_actor, make_mlp, make_sac_critic_mlp
 
 # TODO There is a big question about how to correctly specify different architectures. how do we allow for shared backbones?
 
@@ -175,7 +175,7 @@ if __name__ == "__main__":
     callback = NetworkMonitorCallback(monitor, networks)
     env = "Pendulum-v1"
     agent = SAC(env, 
-                architecture=[make_gaussian_actor, make_sac_spectralnorm_critic_mlp],
+                architecture=[make_gaussian_actor, make_sac_critic_mlp],
                 architecture_kwargs=[{'obs_dim': gym.make(env).observation_space.shape[0], # actor takes a state and outputs a mean action
                                      'action_dim': gym.make(env).action_space.shape[0],
                                      'hidden_dims': [256, 256]},

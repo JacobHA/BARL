@@ -47,36 +47,6 @@ class ConcatInputMLP(MLP):
         x = torch.cat([obs, action], dim=-1)
         return super().forward(x)
 
-# make an mlp with spectral normalization
-class SpectralNormMLP(MLP):
-    def __init__(self, 
-                 input_dim, 
-                 output_dim, 
-                 normalized_layers=[],
-                 *args, 
-                 activation=nn.ReLU,
-                 hidden_dims=(64, 64), 
-                 output_activation=None,
-                 device='auto', 
-                 **kwargs) -> None:
-        super(SpectralNormMLP, self).__init__(input_dim, output_dim, *args, activation=activation,
-                                             hidden_dims=hidden_dims, output_activation=output_activation,
-                                             device=device, **kwargs)
-        # Apply spectral normalization only to specified linear layers
-        for i, layer in enumerate(self.fc_layers):
-            if isinstance(layer, nn.Linear) and i in normalized_layers:
-                self.fc_layers[i] = nn.utils.spectral_norm(layer).to(self.device)
-
-class ConcatInputSpectralNormMLP(SpectralNormMLP):
-    def __init__(self, obs_dim, action_dim, output_dim, *args, **kwargs):
-        super().__init__(input_dim=obs_dim + action_dim, output_dim=output_dim, 
-                         normalized_layers=[2],
-                         *args, **kwargs)
-
-    def forward(self, obs, action): # TODO: extend to arbitrary number of inputs
-        x = torch.cat([obs, action], dim=-1)
-        return super().forward(x)
-
 def make_mlp(input_dim=None, output_dim=None, hidden_dims=(128, 128), activation=nn.ReLU, output_activation=None, device='auto'):
     return MLP(input_dim, 
                output_dim, 
@@ -169,15 +139,6 @@ def make_sac_critic_mlp(obs_dim, action_dim, hidden_dims=(128, 128), activation=
                           hidden_dims=hidden_dims, 
                           activation=activation, 
                           output_activation=output_activation)
-
-def make_sac_spectralnorm_critic_mlp(obs_dim, action_dim, hidden_dims=(128, 128), activation=nn.ReLU, output_activation=None):
-    # cat's the state and action inputs together then passes into an MLP
-    return ConcatInputSpectralNormMLP(obs_dim, 
-                                      action_dim, 
-                                      output_dim=1,
-                                      hidden_dims=hidden_dims, 
-                                      activation=activation, 
-                                      output_activation=output_activation)
 
 class DummyActor(nn.Module):
     def __init__(self, obs_dim, action_dim, device='auto'):
