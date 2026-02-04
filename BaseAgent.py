@@ -197,7 +197,8 @@ class BaseAgent:
 
                         # Add the transition to the replay buffer:
                         action = np.array([action])
-                        self.buffer.add(state, action, reward, terminated)
+                        state_array = np.asarray(state)
+                        self.buffer.add(state_array, action, reward, terminated)
                         state = next_state
                         if self.learn_env_steps % self.log_interval == 0:
                             train_time = (time.thread_time_ns() - init_train_time) / 1e9
@@ -358,6 +359,8 @@ class BaseAgent:
                 try:
                     eval_env.close()
                 except Exception:
+                    # Intentionally ignore errors during environment cleanup to avoid
+                    # masking earlier exceptions or breaking the evaluation flow.
                     pass
         eval_time = (time.process_time_ns() - init_eval_time) / 1e9
         avg_reward /= n_episodes

@@ -82,10 +82,7 @@ class SoftQAgent(BaseAgent):
         with torch.no_grad():
             qvals = self.online_softqs(state).to(device=self.device) + 1 / self.beta * self.log_pi0
             qvals = qvals.squeeze()
-            # return torch.argmax(qvals).item()
-            pi = torch.distributions.Categorical(logits = self.beta * qvals + self.log_pi0)
-            action = pi.sample()
-            return action.item()
+            return torch.argmax(qvals).item()
 
 
     def calculate_loss(self, batch):

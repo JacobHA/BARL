@@ -122,8 +122,9 @@ class DashboardGUI:
                     rel_inside = os.path.basename(normalized)
 
                 run_dir = os.path.join(self.uploaded_log_dir, run_name)
-                dest_path = os.path.abspath(os.path.join(run_dir, rel_inside))
-                if not dest_path.startswith(run_dir + os.sep) and dest_path != run_dir:
+                run_dir_real = os.path.realpath(run_dir)
+                dest_path = os.path.realpath(os.path.join(run_dir_real, rel_inside))
+                if os.path.commonpath([run_dir_real, dest_path]) != run_dir_real:
                     continue
 
                 os.makedirs(os.path.dirname(dest_path), exist_ok=True)
@@ -306,23 +307,15 @@ class DashboardGUI:
             video_dir = os.path.join(run_dir, "videos")
             if not os.path.isdir(video_dir):
                 return jsonify({"error": "Video directory not found"}), 404
-            safe_path = os.path.abspath(os.path.join(video_dir, filename))
-            if not safe_path.startswith(video_dir + os.sep):
+            # Resolve the video directory and requested path to real paths to prevent traversal via symlinks.
+            video_dir_real = os.path.realpath(video_dir)
+            safe_path = os.path.realpath(os.path.join(video_dir_real, filename))
+            # Ensure the requested file is within the video directory.
+            if os.path.commonpath([video_dir_real, safe_path]) != video_dir_real:
                 return jsonify({"error": "Invalid path"}), 400
             if not os.path.isfile(safe_path):
                 return jsonify({"error": "Video not found"}), 404
-            return send_from_directory(video_dir, filename, as_attachment=False)
-            try:
-                hparams = {}
-                with open(hparams_path, "r") as f:
-                    lines = f.readlines()
-                    for line in lines[2:]:
-                        if ":" in line:
-                            key, value = line.split(":", 1)
-                            hparams[key.strip()] = value.strip()
-                return jsonify({"hparams": hparams})
-            except Exception:
-                return jsonify({"hparams": {}})
+            return send_from_directory(video_dir_real, filename, as_attachment=False)
 
         @self.app.route("/api/runs/<path:run_id>/files")
         def api_run_files(run_id: str):

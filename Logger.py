@@ -3,7 +3,6 @@ import json
 import logging
 import math
 import os
-from functools import lru_cache
 from time import time
 from typing import Optional
 
@@ -48,6 +47,7 @@ class BaseLogger:
                         (int(step), value, float(ts)) for step, value, ts in entries
                     ]
             except (json.JSONDecodeError, ValueError):
+                # Ignore corrupted or invalid history files and start fresh.
                 pass
 
     def _store_history(self, param, value, step):
@@ -79,6 +79,7 @@ class BaseLogger:
             with open(self.history_path, "w", encoding="utf-8") as f:
                 json.dump(serializable, f)
         except (IOError, TypeError):
+            # Silently ignore failures when flushing history to avoid disrupting training.
             pass
 
     def log_video(self, video_path):

@@ -79,6 +79,7 @@ class VideoRecorder:
             with open(metadata_path, "w", encoding="utf-8") as f:
                 json.dump(data, f)
         except Exception:
+            # Silently ignore failures when writing video metadata.
             pass
 
 

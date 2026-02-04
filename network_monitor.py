@@ -171,6 +171,7 @@ class NetworkMonitor:
                     top_eig = self._top_eigenvalue_power_iteration(w)
                     stats[f"{layer_name}/top_eigenvalue"] = top_eig
                 except Exception:
+                    # Ignore eigenvalue computation failures for specific layers.
                     pass
 
         return stats

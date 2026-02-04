@@ -4,7 +4,7 @@ import torch
 from BaseAgent import BaseAgent, get_new_params
 from network_monitor import NetworkMonitorCallback, create_monitor_for_agent
 from utils import polyak
-from Architectures import DummyActor, make_gaussian_actor, make_mlp, make_sac_critic_mlp
+from Architectures import make_gaussian_actor
 
 # TODO There is a big question about how to correctly specify different architectures. how do we allow for shared backbones?
 
@@ -162,7 +162,7 @@ class SAC(BaseAgent):
 
 if __name__ == "__main__":
 
-    from Logger import WandBLogger, TensorboardLogger
+    from Logger import TensorboardLogger
     logger = TensorboardLogger('logs/baseline')
     import gymnasium as gym
     monitor, networks = create_monitor_for_agent(

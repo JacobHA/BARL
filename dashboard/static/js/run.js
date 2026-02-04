@@ -425,18 +425,17 @@ function plotBufferStats(data) {
     console.log('Plotting histogram with trace:', histTrace);
     
     // Create element first if needed
-    let histPlot = document.getElementById('rewardHistPlot');
-    if (!histPlot) {
+    let histPlotDiv = document.getElementById('rewardHistPlot');
+    if (!histPlotDiv) {
       const panel = document.getElementById('bufferPlot').closest('.panel');
       const histSection = document.createElement('div');
       histSection.innerHTML = '<div style="margin-top: 20px; padding-top: 20px; border-top: 1px solid #2d3748;"><h3 style="margin-bottom: 10px; font-size: 14px; color: #e6e8ee;">Reward Distribution (from Buffer)</h3><div id="rewardHistPlot" class="plot" style="height: 250px;"></div></div>';
       panel.appendChild(histSection);
-      histPlot = document.getElementById('rewardHistPlot');
+      histPlotDiv = document.getElementById('rewardHistPlot');
     }
     
     // Get current axis ranges if they exist (preserve zoom)
-    const histPlotDiv = document.getElementById('rewardHistPlot');
-    const preserveRange = !trackUpdates && histPlotDiv.layout && histPlotDiv.layout.xaxis && histPlotDiv.layout.xaxis.range;
+    const preserveRange = !trackUpdates && histPlotDiv && histPlotDiv.layout && histPlotDiv.layout.xaxis && histPlotDiv.layout.xaxis.range;
     
     const layout = {
       paper_bgcolor: '#151821',

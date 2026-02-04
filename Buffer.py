@@ -143,7 +143,7 @@ class Buffer:
                     if count > 0
                 }
         return {'reward_histogram': reward_histogram,
-                'terminated_fraction': np.sum(self.terminated[:self.n_stored]) / self.n_stored,
+                'terminated_fraction': (np.sum(self.terminated[:self.n_stored]) / self.n_stored) if self.n_stored > 0 else 0.0,
                 'n_stored': self.n_stored,
                 'buffer_size': self.buffer_size,
                 }
@@ -196,6 +196,8 @@ class Buffer:
                     if self.proc.is_alive():
                         self.proc.kill()
             except Exception:
+                # Intentionally suppress all exceptions during cleanup to avoid
+                # raising errors while shutting down or masking earlier failures.
                 pass
             self.proc = None
 
