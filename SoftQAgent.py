@@ -3,7 +3,7 @@ import gymnasium
 import numpy as np
 import torch
 
-from Architectures import make_mlp
+from Architectures import make_min_discrete_action_critic, make_mlp
 from BaseAgent import BaseAgent, get_new_params
 from callbacks import AUCCallback
 from utils import polyak
@@ -32,6 +32,10 @@ class SoftQAgent(BaseAgent):
         self.polyak_tau = polyak_tau
 
         self.nA = self.env.action_space.n
+        # TODO: make this more robust so not necessary each time, i.e. put in baseagent
+        # Add algo_name and env_str to kwargs for logging
+        self.kwargs['algo_name'] = self.algo_name
+        self.kwargs['env_str'] = self.env_str
         self.log_hparams(self.kwargs)
         
         self.online_softqs = self.architecture
@@ -55,11 +59,8 @@ class SoftQAgent(BaseAgent):
             if target_update_interval is not None:
                 print("WARNING: Target network update interval specified but target network is not used.")
 
-
-        self.model = self.online_softqs
-
         # Make (all) softqs learnable:
-        self.optimizer = torch.optim.Adam(self.model.parameters(), lr=self.learning_rate)
+        self.optimizer = torch.optim.Adam(self.online_softqs.parameters(), lr=self.learning_rate)
 
         # TODO: allow for non uniform priors
         self.log_pi0 = -torch.log(torch.tensor(self.nA))
@@ -124,14 +125,14 @@ class SoftQAgent(BaseAgent):
 
         # Clip gradient norm
         loss.backward()
-        torch.nn.utils.clip_grad_norm_(self.model.parameters(), self.max_grad_norm)
+        torch.nn.utils.clip_grad_norm_(self.online_softqs.parameters(), self.max_grad_norm)
         self.optimizer.step()
 
     def _on_step(self) -> None:
         # Periodically update the target network:
         if self.use_target_network and self.learn_env_steps % self.target_update_interval == 0:
             # Use Polyak averaging as specified:
-            polyak(self.online_softqs, self.target_softqs, self.polyak_tau)
+            polyak(self.target_softqs, self.online_softqs, self.polyak_tau)
 
         super()._on_step()
 
@@ -142,7 +143,8 @@ if __name__ == '__main__':
     logger = TensorboardLogger('logs/acro')
     #logger = WandBLogger(entity='jacobhadamczyk', project='test')
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
-    mlp = make_mlp(env.unwrapped.observation_space.shape[0], env.unwrapped.action_space.n, hidden_dims=[32, 32], device=device)
+    mlp = make_min_discrete_action_critic(env.unwrapped.observation_space.shape[0], env.unwrapped.action_space.n, hidden_dims=[32, 32], device=device)
+    
     agent = SoftQAgent(env,
                        architecture=mlp, 
                        loggers=(logger,),

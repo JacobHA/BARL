@@ -1,6 +1,7 @@
 """Logging utilities for experiment tracking."""
 import json
 import logging
+import math
 import os
 from functools import lru_cache
 from time import time
@@ -51,6 +52,11 @@ class BaseLogger:
 
     def _store_history(self, param, value, step):
         """Store history locally for dashboard access."""
+        # Sanitize value to prevent NaN/Infinity in JSON
+        if isinstance(value, float):
+            if math.isnan(value) or math.isinf(value):
+                value = None
+        
         if param not in self.history:
             self.history[param] = []
         current_time = time() - self.start_time  # Time since training start
@@ -115,6 +121,13 @@ class WandBLogger(BaseLogger):
     def log_image(self, image_path, name="image"):
         """Log image."""
         wandb.log({name: wandb.Image(image_path)})
+
+    def close(self):
+        """Close the WandB run."""
+        try:
+            wandb.finish()
+        except Exception:
+            pass
 
 
 class StdLogger(BaseLogger):

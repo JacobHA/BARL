@@ -1,4 +1,5 @@
 import json
+import math
 import os
 import socket
 import threading
@@ -55,6 +56,14 @@ class DashboardGUI:
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
             s.settimeout(0.5)
             return s.connect_ex(("127.0.0.1", port)) == 0
+
+    @staticmethod
+    def _sanitize_value(value: Any) -> Any:
+        """Convert NaN and Infinity values to None for JSON serialization."""
+        if isinstance(value, float):
+            if math.isnan(value) or math.isinf(value):
+                return None
+        return value
 
     def _setup_routes(self):
         @self.app.route("/")
@@ -362,7 +371,7 @@ class DashboardGUI:
                 with open(run_data_path, "r") as f:
                     data = json.load(f)
                 status = data.get("status", "stopped")
-                return status if status in ["running", "stopped"] else "stopped"
+                return status
             except Exception:
                 pass
         return "stopped"
@@ -381,14 +390,14 @@ class DashboardGUI:
             for name in sorted(os.listdir(root_dir)):
                 path = os.path.join(root_dir, name)
                 if not os.path.isdir(path):
+                    continue
                 run_id = f"{prefix}/{name}" if prefix else name
                 run_data = self._load_run_data(run_id)
                 algo_name = run_data.get("algo_name", "unknown")
-                env_str = run_data.get("env_str", "unknown")
+                env_str = run_data.get("env_str", "N/A")
                 status = run_data.get("status", "stopped")
                 if status not in ["running", "stopped"]:
-                    status = "stopped"ix else name
-                status = self._get_run_status(path)
+                    status = "stopped"
                 runs.append(
                     {
                         "id": run_id,
@@ -428,7 +437,7 @@ class DashboardGUI:
                 return {
                     metric: {
                         "steps": [entry[0] for entry in entries],
-                        "values": [entry[1] for entry in entries],
+                        "values": [self._sanitize_value(entry[1]) for entry in entries],
                         "times": [entry[2] for entry in entries],
                     }
                     for metric, entries in history.items()
@@ -444,7 +453,7 @@ class DashboardGUI:
             return {
                 metric: {
                     "steps": [entry[0] for entry in entries],
-                    "values": [entry[1] for entry in entries],
+                    "values": [self._sanitize_value(entry[1]) for entry in entries],
                     "times": [entry[2] for entry in entries],
                 }
                 for metric, entries in data.items()

@@ -2,7 +2,7 @@ from typing import Optional
 import gymnasium
 import numpy as np
 import torch
-from Architectures import make_atari_nature_cnn, make_mlp
+from Architectures import make_atari_nature_cnn, make_min_discrete_action_critic, make_mlp
 from BaseAgent import BaseAgent, get_new_params
 from network_monitor import NetworkMonitorCallback, create_monitor_for_agent
 from utils import polyak
@@ -41,7 +41,6 @@ class DQN(BaseAgent):
         self.kwargs['env_str'] = self.env_str
         self.log_hparams(self.kwargs)
         self.online_qs = self.architecture(**architecture_kwargs)
-        self.model = self.online_qs
 
         if self.use_target_network:
             # Make another instance of the architecture for the target network:
@@ -65,7 +64,7 @@ class DQN(BaseAgent):
                 print("WARNING: Target network update interval specified but target network is not used.")
 
         # Make (all) qs learnable:
-        self.optimizer = torch.optim.Adam(self.model.parameters(), lr=self.learning_rate)
+        self.optimizer = torch.optim.Adam(self.online_qs.parameters(), lr=self.learning_rate)
 
     def _on_step(self) -> None:
 
@@ -79,7 +78,7 @@ class DQN(BaseAgent):
         # Periodically update the target network:
         if self.use_target_network and self.learn_env_steps % self.target_update_interval == 0:
             # Use Polyak averaging as specified:
-            polyak(self.online_qs, self.target_qs, self.polyak_tau)
+            polyak(self.target_qs, self.online_qs, self.polyak_tau)
 
         super()._on_step()
 
@@ -94,7 +93,10 @@ class DQN(BaseAgent):
     def evaluation_policy(self, state: np.ndarray) -> int:       
         with torch.no_grad():
             qvals = self.online_qs(state)
-        return torch.argmax(qvals[0]).item()
+            # If output has batch dimension (from MLP adding it), remove it
+            if len(qvals.shape) == 2:
+                qvals = qvals.squeeze(0)
+        return torch.argmax(qvals).item()
     
     def gradient_step(self, grad_step):
         # Sample a batch from the replay buffer:
@@ -105,7 +107,7 @@ class DQN(BaseAgent):
 
         # Clip gradient norm
         loss.backward()
-        torch.nn.utils.clip_grad_norm_(self.model.parameters(), self.max_grad_norm)
+        torch.nn.utils.clip_grad_norm_(self.online_qs.parameters(), self.max_grad_norm)
         self.optimizer.step()
 
     def calculate_loss(self, batch):
@@ -150,7 +152,7 @@ if __name__ == '__main__':
     env = 'ALE/Pong-v5'
 
     from Logger import WandBLogger, TensorboardLogger
-    logger = TensorboardLogger('logs/atari')
+    logger = TensorboardLogger('logs/barl')
     #logger = WandBLogger(entity='jacobhadamczyk', project='test')
     # mlp = make_mlp(env.unwrapped.observation_space.shape[0], env.unwrapped.action_space.n, hidden_dims=[32, 32])#, activation=torch.nn.Mish)
     # cnn = make_atari_nature_cnn(gym.make(env).action_space.n)
@@ -162,28 +164,28 @@ if __name__ == '__main__':
     )
 
     callback = NetworkMonitorCallback(monitor, networks)
-    env = 'Acrobot-v1'
+    env = 'CartPole-v1'
     agent = DQN(env, 
-                architecture=make_mlp,
-                architecture_kwargs={'input_dim': gym.make(env).observation_space.shape[0],
-                                     'output_dim': gym.make(env).action_space.n,
-                                     'hidden_dims': [128, 128]},
+                architecture=make_min_discrete_action_critic,
+                architecture_kwargs={'obs_dim': gym.make(env).observation_space.shape[0],
+                                     'n_actions': gym.make(env).action_space.n,
+                                     'hidden_dims': [64, 64]},
                 loggers=(logger,),
-                learning_rate=0.003,
-                exploration_fraction=0.05,
+                learning_rate=0.0003,
+                exploration_fraction=0.15,
                 initial_epsilon=1.0,
                 minimum_epsilon=0.08,
-                train_interval=10,
-                gradient_steps=4,
+                train_interval=1,
+                gradient_steps=1,
                 batch_size=64,
                 use_target_network=True,
-                target_update_interval=10,
+                target_update_interval=100,
                 polyak_tau=1.0,
                 learning_starts=5000,
                 log_interval=500,
                 record_eval_video=True,
-                eval_video_every=5,
+                eval_video_every=50,
                 network_monitor=callback,  # <-- Add monitoring
                 )
 
-    agent.learn(total_timesteps=160_000)
+    agent.learn(total_timesteps=60_000)

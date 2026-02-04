@@ -75,6 +75,7 @@ class Buffer:
         self.preloaded_sample = None
         self.preload_done = False
         self.proc = None
+        self.preload_thread = None
         self.n_missed_preloads = 0
 
     def _preload(self, batch_size, queue):
@@ -98,8 +99,8 @@ class Buffer:
             self.n_missed_preloads += 1
         else:
             self.n_missed_preloads = 0
-            worker = threading.Thread(target=preload_worker)
-            worker.start()
+            self.preload_thread = threading.Thread(target=preload_worker, daemon=True)
+            self.preload_thread.start()
 
     def clear(self):
         self.states =  np.empty((self.buffer_size, *self.state_shape),  dtype=self.state_dtype)
@@ -181,7 +182,12 @@ class Buffer:
             handler(self, **h_kwargs)
 
     def cleanup(self) -> None:
-        """Cleanup method to terminate any active multiprocessing processes."""
+        """Cleanup method to terminate any active multiprocessing processes and wait for threads."""
+        # Wait for preload thread to complete with timeout
+        if self.preload_thread is not None and self.preload_thread.is_alive():
+            self.preload_thread.join(timeout=5.0)
+        
+        # Terminate any active processes
         if self.proc is not None:
             try:
                 if self.proc.is_alive():

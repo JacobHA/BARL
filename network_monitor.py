@@ -33,6 +33,9 @@ class EmptyMonitor:
     def reset(self) -> None:
         pass
 
+    def __call__(self, *args, **kwargs):
+        pass
+
 class NetworkMonitor:
     """Monitors neural network layer properties and gradient statistics."""
 

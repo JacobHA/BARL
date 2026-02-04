@@ -36,9 +36,43 @@ class MLP(nn.Module):
 
     def forward(self, x):
         x = preprocess_obs(x, device=self.device)  # Apply preprocessing
+        # Add batch dimension if needed (handle unbatched inputs like shape (4,))
+        if len(x.shape) == 1:
+            x = x.unsqueeze(0)
         x = self.fc_layers(x)
         return x
-    
+
+class EnsembleMLP(nn.Module):
+    def __init__(self, 
+                 input_dim, 
+                 output_dim, 
+                 n_networks: int = 2,
+                 *args, 
+                 activation=nn.ReLU,
+                 hidden_dims=(64, 64), 
+                 output_activation=None,
+                 ensemble_aggregation=lambda x: torch.min(x, dim=0)[0],
+                 device='auto',
+                 **kwargs) -> None:
+        super(EnsembleMLP, self).__init__()
+        self.device = auto_device(device)
+        self.n_networks = n_networks
+        self.ensemble_aggregation = ensemble_aggregation
+        self.models = nn.ModuleList([
+            MLP(input_dim, output_dim, 
+                activation=activation, 
+                hidden_dims=hidden_dims, 
+                output_activation=output_activation,
+                device=device)
+            for _ in range(n_networks)
+        ]).to(self.device)
+
+    def forward(self, x):
+        # Don't preprocess here - let each MLP handle it
+        outputs = [model(x) for model in self.models]
+        aggregated = self.ensemble_aggregation(torch.stack(outputs, dim=0))
+        return aggregated
+
 class ConcatInputMLP(MLP):
     def __init__(self, obs_dim, action_dim, output_dim, *args, **kwargs):
         super().__init__(input_dim=obs_dim + action_dim, output_dim=output_dim, *args, **kwargs)
@@ -55,6 +89,27 @@ def make_mlp(input_dim=None, output_dim=None, hidden_dims=(128, 128), activation
                output_activation=output_activation, 
                device=device)
 
+def make_min_continuous_action_critic(obs_dim, action_dim, hidden_dims=(128, 128), activation=nn.ReLU, output_activation=None, device='auto'):
+    # creates an ensemble of 2 critics and takes the min Q value
+    return EnsembleMLP(input_dim=obs_dim + action_dim, 
+                       output_dim=1, 
+                       n_networks=2,
+                       hidden_dims=hidden_dims, 
+                       activation=activation, 
+                       output_activation=output_activation,
+                       ensemble_aggregation=lambda x: torch.min(x, dim=0)[0],
+                       device=device)
+
+def make_min_discrete_action_critic(obs_dim, n_actions, hidden_dims=(128, 128), activation=nn.ReLU, output_activation=None, device='auto'):
+    # creates an ensemble of 2 critics and takes the min Q value
+    return EnsembleMLP(input_dim=obs_dim, 
+                       output_dim=n_actions, 
+                       n_networks=2,
+                       hidden_dims=hidden_dims, 
+                       activation=activation, 
+                       output_activation=output_activation,
+                       ensemble_aggregation=lambda x: torch.min(x, dim=0)[0],
+                       device=device)
 
 def make_cnn_sequential(input_dim, output_dim, hidden_dims=(32, 64), activation=nn.ReLU, output_activation=None):
     layers = []

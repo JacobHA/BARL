@@ -223,6 +223,8 @@ class BaseAgent:
                         self.log_history("rollout/ep_reward", self.rollout_reward, self.learn_env_steps)
                         self.log_history("rollout/avg_episode_length", avg_ep_len, self.learn_env_steps)
                         self.log_history("train/num. episodes", self.num_episodes, self.learn_env_steps)
+        except KeyboardInterrupt:
+            print("\n\nTraining interrupted by user. Cleaning up...")
         finally:
             # Cleanup after training completes or is interrupted
             self._cleanup()
@@ -280,7 +282,7 @@ class BaseAgent:
         Cleanup method called after training completes.
         Closes loggers and cleans up resources.
         """
-        # Write stopped status before cleanup
+        # Write appropriate status before cleanup
         self._write_status('stopped')
         
         # Terminate any background preloading processes in the buffer

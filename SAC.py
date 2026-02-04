@@ -73,12 +73,11 @@ class SAC(BaseAgent):
 
 
     def _on_step(self) -> None:
-        super()._on_step()
         # Periodically update the target network:
         if self.use_target_network and self.learn_env_steps % self.target_update_interval == 0:
             # Use Polyak averaging as specified:
             polyak(self.target_critic, self.critic, self.polyak_tau)
-            # TODO: implement multiple nets inside the critic which is min'd over. This can be an architecture "MinQNet".
+        super()._on_step()
 
 
 
@@ -191,7 +190,7 @@ if __name__ == "__main__":
                 batch_size=256,
                 use_target_network=True,
                 target_update_interval=1,
-                polyak_tau=0.995,
+                polyak_tau=0.005,
                 learning_starts=500,
                 log_interval=500,
                 record_eval_video=True,
