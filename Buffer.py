@@ -153,13 +153,17 @@ class Buffer:
         return [th.from_numpy(x).to(device) for x in batch]
 
     def _sample(self, batch_size):
-        # since the s' is not valid where s is done, we need to use
-        idxs_done = np.where(self.terminated)[0]
-        idxs_all = np.arange(self.n_stored)
-        idxs_valid = np.setdiff1d(idxs_all, idxs_done)
-        idx = np.random.choice(idxs_all, batch_size)
+        # Avoid sampling the most recent transition when the buffer is not full,
+        # since its next_state has not been written yet.
+        if self.n_stored < 2: # need state, next_state
+            raise ValueError("Not enough samples in buffer to sample.")
+        if self.n_stored < self.buffer_size:
+            idxs_valid = np.arange(self.n_stored - 1)
+        else:
+            idxs_valid = np.arange(self.buffer_size)
+
+        idx = np.random.choice(idxs_valid, batch_size)
         next_idx = (idx + 1) % self.buffer_size
-        # fix next idx if done
         return (self.states[idx],
                 self.actions[idx],
                 self.rewards[idx],
