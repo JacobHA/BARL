@@ -27,6 +27,7 @@ class BaseAgent:
     @typechecked
     def __init__(self,
                  env_id: Union[str, gym.Env],
+                 env_kwargs: dict = {},
                  architecture: Union[str, torch.nn.Module, callable] = "mlp",
                  learning_rate: float = 3e-4,
                  batch_size: int = 64,
@@ -42,6 +43,7 @@ class BaseAgent:
                  save_checkpoints: bool = False,
                  seed: Optional[int] = None,
                  eval_callbacks: List[callable] = [],
+                 num_eval_episodes: int = 10,
                  record_eval_video: bool = False,
                  eval_video_every: int = 1,
                  eval_video_episodes: int = 1,
@@ -71,7 +73,12 @@ class BaseAgent:
         self.env_id = env_id
         self.is_atari = is_atari
         self.permute_dims = permute_dims
-        self.env, self.eval_env = env_id_to_envs(env_id, render, is_atari=is_atari, permute_dims=permute_dims)
+        self.env, self.eval_env = env_id_to_envs(env_id, 
+                                                 render,
+                                                 is_atari=is_atari,
+                                                 permute_dims=permute_dims,
+                                                 env_kwargs=env_kwargs)
+        self.num_eval_episodes = num_eval_episodes
 
         if hasattr(self.env.unwrapped.spec, 'id'):
             self.env_str = self.env.unwrapped.spec.id
@@ -203,7 +210,7 @@ class BaseAgent:
                             train_time = (time.thread_time_ns() - init_train_time) / 1e9
                             train_fps = self.log_interval / train_time
                             self.log_history('time/train_fps', train_fps, self.learn_env_steps)
-                            self.avg_eval_rwd = self.evaluate()
+                            self.avg_eval_rwd = self.evaluate(n_episodes=self.num_eval_episodes)
                             # Log buffer statistics
                             buffer_stats = self.buffer.calculate_statistics()
                             self.log_history('buffer/n_stored', buffer_stats['n_stored'], self.learn_env_steps)
