@@ -25,6 +25,7 @@ class BaseLogger:
         self._last_flush_time = 0.0
         if run_dir is not None:
             self.set_run_dir(run_dir)
+            print("Logger enabled at", run_dir)
 
     def log_hparams(self, hparam_dict):
         """Log hyperparameters."""

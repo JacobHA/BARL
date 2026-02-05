@@ -99,22 +99,45 @@ def find_torch_modules(module, modules=None, prefix=None):
 def polyak(target_nets, online_nets, tau):
     """
     Perform a Polyak (exponential moving average) update for target networks.
-
+    
+    Uses the standard definition: target = (1 - tau) * target + tau * online
+    
     Args:
-        online_nets (list): A list of online networks whose parameters will be used for the update.
-        tau (float): The update rate, typically between 0 and 1.
-
-    Raises:
-        ValueError: If the number of online networks does not match the number of target networks.
+        target_nets: Target network whose parameters will be updated.
+        online_nets: Online network whose parameters will be used for the update.
+        tau (float): The soft update coefficient, in range [0, 1].
+                     tau=0: no update (target unchanged)
+                     tau=1: hard update (target = online)
     """
     with torch.no_grad():
-        # zip does not raise an exception if length of parameters does not match.
         for new_params, target_params in zip(online_nets.parameters(), target_nets.parameters()):
-            for param, target_param in zip_strict(new_params, target_params):
-                target_param.data.mul_(tau)
-                torch.add(target_param.data, param.data, alpha=1.0-tau, out=target_param.data)
+            for param, target_param in zip(new_params, target_params):
+                # Standard Definition: Target = (1-tau)*Target + tau*Online
+                target_param.data.mul_(1.0 - tau)
+                torch.add(target_param.data, param.data, alpha=tau, out=target_param.data)
 
+def prepare_online_and_target(use_target_network, architecture, architecture_kwargs):
+    # Initialize online net(s):
+    online_nets = architecture(**architecture_kwargs)
+    if use_target_network:
+        # Make another instance of the architecture for the target network:
+        target_nets = architecture(**architecture_kwargs)
+        target_nets.load_state_dict(online_nets.state_dict())
+    else:
+        target_nets = online_nets
+    return online_nets, target_nets 
 
+def check_polyak_tau(use_target_network, polyak_tau, target_update_interval):
+    if use_target_network:
+        if polyak_tau is not None:
+            if not(0 <= polyak_tau <= 1):
+                raise ValueError("Polyak tau must be in the range [0, 1].")
+        else:
+            raise ValueError("WARNING: No polyak tau specified for soft target updates. Use tau=1 for hard updates.")
+
+        if target_update_interval is None:
+            raise ValueError("ERROR: Target network update interval not specified.")
+        
 def auto_device(device: Union[torch.device, str] = 'auto'):
     if device == 'auto':
         return 'cuda' if torch.cuda.is_available() else 'cpu'

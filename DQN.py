@@ -5,7 +5,7 @@ import torch
 from Architectures import make_atari_nature_cnn, make_min_discrete_action_critic, make_mlp
 from BaseAgent import BaseAgent, get_new_params
 from network_monitor import NetworkMonitorCallback, create_monitor_for_agent
-from utils import polyak
+from utils import check_polyak_tau, polyak, prepare_online_and_target
 
 
 class DQN(BaseAgent):
@@ -40,34 +40,17 @@ class DQN(BaseAgent):
         self.kwargs['algo_name'] = self.algo_name
         self.kwargs['env_str'] = self.env_str
         self.log_hparams(self.kwargs)
-        self.online_qs = self.architecture(**architecture_kwargs)
-
-        if self.use_target_network:
-            # Make another instance of the architecture for the target network:
-            self.target_qs = self.architecture(**architecture_kwargs)
-            self.target_qs.load_state_dict(self.online_qs.state_dict())
-            if polyak_tau is not None:
-                assert 0 <= polyak_tau <= 1, "Polyak tau must be in the range [0, 1]."
-                self.polyak_tau = polyak_tau
-            else:
-                print("WARNING: No polyak tau specified for soft target updates. Using default tau=1 for hard updates.")
-                self.polyak_tau = 1.0
-
-            if target_update_interval is None:
-                print("WARNING: Target network update interval not specified. Using default interval of 1 step.")
-                self.target_update_interval = 1
-        # Alias the "target" with online net if target is not used:
-        else:
-            self.target_qs = self.online_qs
-            # Raise a warning if update interval is specified:
-            if target_update_interval is not None:
-                print("WARNING: Target network update interval specified but target network is not used.")
-
+        
+        check_polyak_tau(self.use_target_network, self.polyak_tau, self.target_update_interval)
+        self.online_qs, self.target_qs = prepare_online_and_target(
+            use_target_network=self.use_target_network,
+            architecture=self.architecture,
+            architecture_kwargs=architecture_kwargs)
+        
         # Make (all) qs learnable:
         self.optimizer = torch.optim.Adam(self.online_qs.parameters(), lr=self.learning_rate)
 
     def _on_step(self) -> None:
-
         # Update epsilon:
         progress = self.learn_env_steps / max(1, self.total_learn_env_steps)
         self.epsilon = max(self.minimum_epsilon, self.initial_epsilon - progress / self.exploration_fraction)
@@ -82,13 +65,11 @@ class DQN(BaseAgent):
 
         super()._on_step()
 
-
     def exploration_policy(self, state: np.ndarray) -> int:
         if np.random.rand() < self.epsilon:
             return self.env.action_space.sample()
         else:
             return self.evaluation_policy(state)
-    
 
     def evaluation_policy(self, state: np.ndarray) -> int:       
         with torch.no_grad():
@@ -97,23 +78,26 @@ class DQN(BaseAgent):
             if len(qvals.shape) == 2:
                 qvals = qvals.squeeze(0)
         return torch.argmax(qvals).item()
-    
+
     def gradient_step(self, grad_step):
         # Sample a batch from the replay buffer:
         batch = self.buffer.sample(self.batch_size)
-
         loss = self.calculate_loss(batch)
         self.optimizer.zero_grad()
-
         # Clip gradient norm
         loss.backward()
-        torch.nn.utils.clip_grad_norm_(self.online_qs.parameters(), self.max_grad_norm)
+        if self.max_grad_norm is not None:
+            torch.nn.utils.clip_grad_norm_(self.online_qs.parameters(), self.max_grad_norm)
         self.optimizer.step()
 
     def calculate_loss(self, batch):
         states, actions, rewards, next_states, dones = batch
         actions = actions.long()
         dones = dones.float()
+        
+        # Ensure actions have shape (batch_size, 1) for gather
+        if len(actions.shape) == 1:
+            actions = actions.unsqueeze(1)
         
         # Forward pass through online network
         q_values = self.online_qs(states)  # (batch_size, action_size)
@@ -129,10 +113,17 @@ class DQN(BaseAgent):
             expected_curr_q = rewards + self.gamma * next_v * (1 - dones)
 
         # Calculate the q ("critic") loss:
-        loss = 0.5*torch.nn.functional.mse_loss(curr_q, expected_curr_q)
+        loss = torch.nn.functional.mse_loss(curr_q, expected_curr_q)
         
+        # Logging for debugging
         self.log_history("train/online_q_mean", curr_q.mean().item(), self.learn_env_steps)
-        # log the loss:
+        self.log_history("train/online_q_std", curr_q.std().item(), self.learn_env_steps)
+        self.log_history("train/online_q_min", curr_q.min().item(), self.learn_env_steps)
+        self.log_history("train/online_q_max", curr_q.max().item(), self.learn_env_steps)
+        self.log_history("train/target_q_mean", expected_curr_q.mean().item(), self.learn_env_steps)
+        self.log_history("train/target_q_std", expected_curr_q.std().item(), self.learn_env_steps)
+        self.log_history("train/reward_mean", rewards.mean().item(), self.learn_env_steps)
+        self.log_history("train/next_v_mean", next_v.mean().item(), self.learn_env_steps)
         self.log_history("train/loss", loss.item(), self.learn_env_steps)
 
         return loss
@@ -166,26 +157,27 @@ if __name__ == '__main__':
     callback = NetworkMonitorCallback(monitor, networks)
     env = 'CartPole-v1'
     agent = DQN(env, 
-                architecture=make_min_discrete_action_critic,
-                architecture_kwargs={'obs_dim': gym.make(env).observation_space.shape[0],
-                                     'n_actions': gym.make(env).action_space.n,
-                                     'hidden_dims': [64, 64]},
+                architecture=make_mlp,
+                architecture_kwargs={'input_dim': gym.make(env).observation_space.shape[0],
+                                     'output_dim': gym.make(env).action_space.n,
+                                     'hidden_dims': [32, 32]},
                 loggers=(logger,),
-                learning_rate=0.0003,
-                exploration_fraction=0.15,
+                learning_rate=0.001,
+                gamma=0.99,
+                exploration_fraction=0.16,
                 initial_epsilon=1.0,
-                minimum_epsilon=0.08,
-                train_interval=1,
-                gradient_steps=1,
-                batch_size=64,
+                minimum_epsilon=0.04,
+                train_interval=10,
+                gradient_steps=4,
+                batch_size=256,
                 use_target_network=True,
-                target_update_interval=100,
+                target_update_interval=10,
                 polyak_tau=1.0,
-                learning_starts=5000,
+                learning_starts=1000,
                 log_interval=500,
                 record_eval_video=True,
                 eval_video_every=50,
                 network_monitor=callback,  # <-- Add monitoring
                 )
 
-    agent.learn(total_timesteps=60_000)
+    agent.learn(total_timesteps=50_000)

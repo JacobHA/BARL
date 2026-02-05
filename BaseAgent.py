@@ -33,7 +33,7 @@ class BaseAgent:
                  buffer_size: int = 100_000,
                  gradient_steps: int = 1,
                  train_interval: int = 1,
-                 max_grad_norm: float = 10,
+                 max_grad_norm: Optional[float] = None,
                  learning_starts=5_000,
                  device: Union[torch.device, str] = "auto",
                  render: bool = False,
