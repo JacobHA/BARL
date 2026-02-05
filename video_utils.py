@@ -35,6 +35,7 @@ class VideoRecorder:
         step: int,
         is_atari: bool = False,
         permute_dims: bool = False,
+        env_kwargs: dict = {},
     ):
         """Create a video-capable evaluation environment."""
         name_prefix = f"eval_step_{step}_vid_{self._video_index}"
@@ -48,6 +49,7 @@ class VideoRecorder:
                 env_id,
                 video_folder=video_dir,
                 name_prefix=name_prefix,
+                env_kwargs=env_kwargs,
                 is_atari=is_atari,
                 permute_dims=permute_dims,
                 episode_trigger=episode_trigger,
