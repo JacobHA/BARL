@@ -155,7 +155,7 @@ def zip_strict(*iterables):
     # Yield the zipped items
     yield from zip(*iterables, strict=True)
 
-def env_id_to_envs(env_id, render, is_atari=False, permute_dims=False):
+def env_id_to_envs(env_id, render, is_atari=False, permute_dims=False, **env_kwargs):
     if isinstance(env_id, gym.Env):
         env = env_id
         # Make a new copy for the eval env:
@@ -164,8 +164,8 @@ def env_id_to_envs(env_id, render, is_atari=False, permute_dims=False):
     if is_atari:
         return atari_env_id_to_envs(env_id, render, n_envs=1, frameskip=4, framestack_k=4, permute_dims=permute_dims)
     else:
-        env = gym.make(env_id)
-        eval_env = gym.make(env_id, render_mode='human' if render else None)
+        env = gym.make(env_id, **env_kwargs)
+        eval_env = gym.make(env_id, render_mode='human' if render else None, **env_kwargs)
         return env, eval_env
 
 from gymnasium.wrappers.atari_preprocessing import AtariPreprocessing
