@@ -3,12 +3,11 @@ import gymnasium
 import numpy as np
 import torch
 
-from Architectures import make_mlp
+from Architectures import make_min_discrete_action_critic, make_mlp
 from BaseAgent import BaseAgent, get_new_params
 from callbacks import AUCCallback
-from utils import polyak
+from utils import polyak, check_polyak_tau, prepare_online_and_target
 from Logger import WandBLogger, TensorboardLogger
-
 
 class SoftQAgent(BaseAgent):
     def __init__(self,
@@ -18,6 +17,7 @@ class SoftQAgent(BaseAgent):
                  use_target_network: bool = False,
                  target_update_interval: Optional[int] = None,
                  polyak_tau: Optional[float] = None,
+                 architecture_kwargs: dict = {},
                  **kwargs,
                  ):
         
@@ -32,35 +32,21 @@ class SoftQAgent(BaseAgent):
         self.polyak_tau = polyak_tau
 
         self.nA = self.env.action_space.n
+        # TODO: make this more robust so not necessary each time, i.e. put in baseagent
+        # Add algo_name and env_str to kwargs for logging
+        self.kwargs['algo_name'] = self.algo_name
+        self.kwargs['env_str'] = self.env_str
         self.log_hparams(self.kwargs)
+
+        self.online_softqs, self.target_softqs = prepare_online_and_target(
+            use_target_network=self.use_target_network,
+            architecture=self.architecture,
+            architecture_kwargs=architecture_kwargs)
         
-        self.online_softqs = self.architecture
-        if self.use_target_network:
-            self.target_softqs = self.architecture
-            self.target_softqs.load_state_dict(self.online_softqs.state_dict())
-            if polyak_tau is not None:
-                assert 0 <= polyak_tau <= 1, "Polyak tau must be in the range [0, 1]."
-                self.polyak_tau = polyak_tau
-            else:
-                print("WARNING: No polyak tau specified for soft target updates. Using default tau=1 for hard updates.")
-                self.polyak_tau = 1.0
+        check_polyak_tau(self.use_target_network, self.polyak_tau, self.target_update_interval)
 
-            if target_update_interval is None:
-                print("WARNING: Target network update interval not specified. Using default interval of 1 step.")
-                self.target_update_interval = 1
-        # Alias the "target" with online net if target is not used:
-        else:
-            self.target_softqs = self.online_softqs
-            # Raise a warning if update interval is specified:
-            if target_update_interval is not None:
-                print("WARNING: Target network update interval specified but target network is not used.")
-
-
-        self.model = self.online_softqs
-
-        # Make (all) softqs learnable:
-        self.optimizer = torch.optim.Adam(self.model.parameters(), lr=self.learning_rate)
-
+        # Make (all) qs learnable:
+        self.optimizer = torch.optim.Adam(self.online_softqs.parameters(), lr=self.learning_rate)
         # TODO: allow for non uniform priors
         self.log_pi0 = -torch.log(torch.tensor(self.nA))
 
@@ -74,15 +60,16 @@ class SoftQAgent(BaseAgent):
             pi = torch.distributions.Categorical(logits = self.beta * qvals + self.log_pi0)
             action = pi.sample()
             return action.item()
-    
 
     def evaluation_policy(self, state: np.ndarray) -> int:
         # Get the greedy action from the q values:
         with torch.no_grad():
             qvals = self.online_softqs(state).to(device=self.device) + 1 / self.beta * self.log_pi0
             qvals = qvals.squeeze()
-            return torch.argmax(qvals).item()
-
+            # return torch.argmax(qvals).item()
+            pi = torch.distributions.Categorical(logits = self.beta * qvals + self.log_pi0)
+            action = pi.sample()
+            return action.item()
 
     def calculate_loss(self, batch):
         states, actions, rewards, next_states, dones = batch
@@ -112,27 +99,42 @@ class SoftQAgent(BaseAgent):
 
         return loss
 
+    def gradient_step(self, grad_step):
+        # Sample a batch from the replay buffer:
+        batch = self.buffer.sample(self.batch_size)
+        loss = self.calculate_loss(batch)
+        self.optimizer.zero_grad()
+        # Clip gradient norm
+        loss.backward()
+        if self.max_grad_norm is not None:
+            torch.nn.utils.clip_grad_norm_(self.online_softqs.parameters(), self.max_grad_norm)
+        self.optimizer.step()
+
     def _on_step(self) -> None:
         # Periodically update the target network:
         if self.use_target_network and self.learn_env_steps % self.target_update_interval == 0:
             # Use Polyak averaging as specified:
-            polyak(self.online_softqs, self.target_softqs, self.polyak_tau)
+            polyak(self.target_softqs, self.online_softqs, self.polyak_tau)
 
         super()._on_step()
 
 
 if __name__ == '__main__':
     import gymnasium as gym
-    env = gym.make('Acrobot-v1')
+    env = 'CartPole-v1'
     logger = TensorboardLogger('logs/acro')
     #logger = WandBLogger(entity='jacobhadamczyk', project='test')
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
-    mlp = make_mlp(env.unwrapped.observation_space.shape[0], env.unwrapped.action_space.n, hidden_dims=[32, 32], device=device)
+    # mlp = make_min_discrete_action_critic(env.unwrapped.observation_space.shape[0], env.unwrapped.action_space.n, hidden_dims=[32, 32], device=device)
+    
     agent = SoftQAgent(env,
-                       architecture=mlp, 
+                       architecture=make_min_discrete_action_critic,
+                       architecture_kwargs={'obs_dim': gym.make(env).observation_space.shape[0],
+                                            'n_actions': gym.make(env).action_space.n,
+                                            'hidden_dims': [32, 32]},
                        loggers=(logger,),
                        learning_rate=0.001,
-                       beta=0.05,
+                       beta=5,
                        train_interval=10,
                        gradient_steps=4,
                        batch_size=256,
@@ -141,4 +143,4 @@ if __name__ == '__main__':
                        polyak_tau=1.0,
                        eval_callbacks=[AUCCallback],
                        )
-    agent.learn(total_timesteps=50000)
+    agent.learn(total_timesteps=26000)

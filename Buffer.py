@@ -75,6 +75,7 @@ class Buffer:
         self.preloaded_sample = None
         self.preload_done = False
         self.proc = None
+        self.preload_thread = None
         self.n_missed_preloads = 0
 
     def _preload(self, batch_size, queue):
@@ -98,45 +99,76 @@ class Buffer:
             self.n_missed_preloads += 1
         else:
             self.n_missed_preloads = 0
-            worker = threading.Thread(target=preload_worker)
-            worker.start()
+            self.preload_thread = threading.Thread(target=preload_worker, daemon=True)
+            self.preload_thread.start()
 
     def clear(self):
         self.states =  np.empty((self.buffer_size, *self.state_shape),  dtype=self.state_dtype)
         self.actions = np.empty((self.buffer_size, *self.action_shape), dtype=self.action_dtype)
         self.rewards = np.empty((self.buffer_size, 1), dtype=np.float32)
-        self.dones =   np.empty((self.buffer_size, 1), dtype=bool)
+        self.terminated =   np.empty((self.buffer_size, 1), dtype=bool)
         self.ep_start = 0
         self.ep_end = 0
         self.n_stored = 0
 
-    def add(self, state, action, reward, done):
+    def add(self, state, action, reward, terminated):
         self.states [self.ep_end] = state
         self.actions[self.ep_end] = action
         self.rewards[self.ep_end] = reward
-        self.dones  [self.ep_end] = done
+        self.terminated[self.ep_end] = terminated
         self.n_stored = min(self.buffer_size, self.n_stored + 1)
         self.ep_end += 1
         if self.ep_end == self.buffer_size:
             self.ep_end = 0
-        if done:
+        if terminated:
             self._handle_done()
+
+    def calculate_statistics(self):
+        # get the histogram for rewards:
+        rewards = self.rewards[:self.n_stored]
+        rewards = rewards.flatten()
+        reward_histogram = {}
+        if self.n_stored > 0:
+            unique = np.unique(rewards)
+            if unique.size <= 50:
+                unique, counts = np.unique(rewards, return_counts=True)
+                reward_histogram = dict(zip(unique.tolist(), counts.tolist()))
+            else:
+                # Bin continuous rewards to avoid one-count-per-value
+                counts, edges = np.histogram(rewards, bins=50)
+                centers = (edges[:-1] + edges[1:]) / 2.0
+                reward_histogram = {
+                    float(center): int(count)
+                    for center, count in zip(centers, counts)
+                    if count > 0
+                }
+        return {'reward_histogram': reward_histogram,
+                'terminated_fraction': np.sum(self.terminated[:self.n_stored]) / self.n_stored,
+                'n_stored': self.n_stored,
+                'buffer_size': self.buffer_size,
+                }
 
     @staticmethod
     def to_device(batch, device):
         return [th.from_numpy(x).to(device) for x in batch]
 
     def _sample(self, batch_size):
-        # since the s' is not valid where s is done, we need to use
-        idxs_done = np.where(self.dones)[0]
-        idxs_all = np.arange(self.n_stored)
-        idxs_valid = np.setdiff1d(idxs_all, idxs_done)
+        # Avoid sampling the most recent transition when the buffer is not full,
+        # since its next_state has not been written yet.
+        if self.n_stored < 2: # need state, next_state
+            raise ValueError("Not enough samples in buffer to sample.")
+        if self.n_stored < self.buffer_size:
+            idxs_valid = np.arange(self.n_stored - 1)
+        else:
+            idxs_valid = np.arange(self.buffer_size)
+
         idx = np.random.choice(idxs_valid, batch_size)
+        next_idx = (idx + 1) % self.buffer_size
         return (self.states[idx],
                 self.actions[idx],
                 self.rewards[idx],
-                self.states[idx + 1],
-                self.dones[idx],)
+                self.states[next_idx],
+                self.terminated[idx],)
 
     def sample(self, batch_size):
         if self.preload_done:
@@ -152,6 +184,24 @@ class Buffer:
     def _handle_done(self):
         for handler, h_kwargs in self.done_handlers:
             handler(self, **h_kwargs)
+
+    def cleanup(self) -> None:
+        """Cleanup method to terminate any active multiprocessing processes and wait for threads."""
+        # Wait for preload thread to complete with timeout
+        if self.preload_thread is not None and self.preload_thread.is_alive():
+            self.preload_thread.join(timeout=5.0)
+        
+        # Terminate any active processes
+        if self.proc is not None:
+            try:
+                if self.proc.is_alive():
+                    self.proc.terminate()
+                    self.proc.join(timeout=5.0)
+                    if self.proc.is_alive():
+                        self.proc.kill()
+            except Exception:
+                pass
+            self.proc = None
 
 
 class TDBuffer(Buffer):

@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Run {{ run_id }} · BARL</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/main.css') }}" />
+  <script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
+</head>
+<body>
+  <div class="page">
+    <header class="header">
+      <div>
+        <h1>Run: {{ run_id }}</h1>
+        <p class="subtitle">{{ agent_class }} · {{ env_name }}</p>
+      </div>
+      <div class="header-actions">
+        <a class="btn" href="/">← Back to hub</a>
+        <button id="trackUpdatesBtn" class="btn">Track Updates: ON</button>
+        <button id="toggleAxisBtn" class="btn">Toggle X-Axis</button>
+      </div>
+    </header>
+
+    <div class="layout">
+      <aside class="sidebar">
+        <section class="panel">
+          <div class="panel-header">
+            <h2>Metrics</h2>
+          </div>
+          <input id="metricSearch" class="input" placeholder="Search metrics" />
+          <div id="metricList" class="metric-list"></div>
+        </section>
+
+        <section class="panel">
+          <div class="panel-header">
+            <h2>Replay Buffer Plots</h2>
+          </div>
+          <div id="bufferPlotList" class="metric-list"></div>
+        </section>
+
+        <section class="panel">
+          <div class="panel-header">
+            <h2>Parameter Stats</h2>
+          </div>
+          <select id="networkViewSelect" class="input" style="margin-bottom: 8px;">
+            <option value="parameter" selected>Parameter Stats</option>
+            <option value="network">Network Stats</option>
+          </select>
+          <input id="networkSearch" class="input" placeholder="Search layers" style="margin-bottom: 8px;" />
+          <div id="networkLayerList" class="network-layer-list"></div>
+        </section>
+
+        <section class="panel">
+          <div class="panel-header">
+            <h2>Notes</h2>
+            <button id="saveNotesBtn" class="btn btn-small">Save</button>
+          </div>
+          <textarea id="notesArea" class="textarea" rows="10" placeholder="Write notes for this run..."></textarea>
+        </section>
+
+        <section class="panel">
+          <div class="panel-header">
+            <h2>Hyperparameters</h2>
+          </div>
+          <details id="hparamsDetails" style="margin-top: 10px;">
+            <summary style="cursor: pointer; padding: 8px; background: #2d3748; border-radius: 4px; list-style: none; user-select: none;">
+              <span style="font-weight: 500;">▶ Show hyperparameters</span>
+            </summary>
+            <div id="hparamsList" style="margin-top: 10px; padding: 10px; background: #1a1f2e; border-radius: 4px; font-size: 13px; line-height: 1.6; max-height: 400px; overflow-y: auto;"></div>
+          </details>
+        </section>
+
+        <section class="panel">
+          <div class="panel-header">
+            <h2>Memory usage</h2>
+          </div>
+          <div id="memoryPanel" class="memory-panel">
+            <div id="memoryTotal" class="memory-total"></div>
+            <div id="memoryBreakdown" class="memory-breakdown"></div>
+          </div>
+        </section>
+      </aside>
+
+      <main class="main">
+        <section class="panel">
+          <div class="panel-header">
+            <h2>Metrics Over Time</h2>
+            <div class="muted" id="axisLabel">X-Axis: Training Time</div>
+          </div>
+          <div id="mainPlot" class="plot"></div>
+        </section>
+
+        <section id="bufferPanel" class="panel" style="display: none;">
+          <div class="panel-header">
+            <h2>Buffer Statistics</h2>
+          </div>
+          <div id="bufferPlot" class="plot" style="height: 300px;"></div>
+        </section>
+
+        <section id="networkPanel" class="panel" style="display: none;">
+          <div class="panel-header">
+            <h2>Parameter Statistics</h2>
+            <div class="muted" id="networkLayerLabel"></div>
+          </div>
+          <div class="network-stats-grid">
+            <div>
+              <div class="muted" style="margin-bottom: 6px;">Weights</div>
+              <div id="networkWeightsPlot" class="plot" style="height: 300px;"></div>
+            </div>
+            <div>
+              <div class="muted" style="margin-bottom: 6px;">Gradients</div>
+              <div id="networkGradientsPlot" class="plot" style="height: 300px;"></div>
+            </div>
+          </div>
+        </section>
+
+        <section id="networkOtherPanel" class="panel" style="display: none;">
+          <div class="panel-header">
+            <h2>Network Statistics</h2>
+            <div class="muted" id="networkOtherLabel"></div>
+          </div>
+          <div id="networkOtherPlot" class="plot" style="height: 300px;"></div>
+        </section>
+
+        <section class="panel">
+          <div class="panel-header">
+            <h2>Evaluation Videos</h2>
+            <div style="display: flex; gap: 8px;">
+              <button id="toggleVideosBtn" class="btn btn-small">Collapse</button>
+              <button id="refreshVideosBtn" class="btn btn-small">Refresh</button>
+            </div>
+          </div>
+          <div id="videoList" class="video-grid"></div>
+          <div id="videoEmptyState" class="muted" style="display: none; margin-top: 8px;">
+            No videos recorded yet.
+          </div>
+        </section>
+      </main>
+    </div>
+  </div>
+
+  <script>
+    window.__RUN_ID__ = "{{ run_id }}";
+  </script>
+  <script src="{{ url_for('static', filename='js/run.js') }}"></script>
+</body>
+</html>

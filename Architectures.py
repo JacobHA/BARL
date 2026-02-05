@@ -36,10 +36,50 @@ class MLP(nn.Module):
 
     def forward(self, x):
         x = preprocess_obs(x, device=self.device)  # Apply preprocessing
+        # Add batch dimension if needed (handle unbatched inputs like shape (4,))
+        if len(x.shape) == 1:
+            x = x.unsqueeze(0)
         x = self.fc_layers(x)
         return x
 
-    
+class EnsembleMLP(nn.Module):
+    def __init__(self, 
+                 input_dim, 
+                 output_dim, 
+                 n_networks: int = 2,
+                 *args, 
+                 activation=nn.ReLU,
+                 hidden_dims=(64, 64), 
+                 output_activation=None,
+                 ensemble_aggregation=lambda x: torch.min(x, dim=0)[0],
+                 device='auto',
+                 **kwargs) -> None:
+        super(EnsembleMLP, self).__init__()
+        self.device = auto_device(device)
+        self.n_networks = n_networks
+        self.ensemble_aggregation = ensemble_aggregation
+        self.models = nn.ModuleList([
+            MLP(input_dim, output_dim, 
+                activation=activation, 
+                hidden_dims=hidden_dims, 
+                output_activation=output_activation,
+                device=device)
+            for _ in range(n_networks)
+        ]).to(self.device)
+
+    def forward(self, x):
+        # Don't preprocess here - let each MLP handle it
+        outputs = [model(x) for model in self.models]
+        aggregated = self.ensemble_aggregation(torch.stack(outputs, dim=0))
+        return aggregated
+
+class ConcatInputMLP(MLP):
+    def __init__(self, obs_dim, action_dim, output_dim, *args, **kwargs):
+        super().__init__(input_dim=obs_dim + action_dim, output_dim=output_dim, *args, **kwargs)
+
+    def forward(self, obs, action): # TODO: extend to arbitrary number of inputs
+        x = torch.cat([obs, action], dim=-1)
+        return super().forward(x)
 
 def make_mlp(input_dim=None, output_dim=None, hidden_dims=(128, 128), activation=nn.ReLU, output_activation=None, device='auto'):
     return MLP(input_dim, 
@@ -49,6 +89,27 @@ def make_mlp(input_dim=None, output_dim=None, hidden_dims=(128, 128), activation
                output_activation=output_activation, 
                device=device)
 
+def make_min_continuous_action_critic(obs_dim, action_dim, hidden_dims=(128, 128), activation=nn.ReLU, output_activation=None, device='auto'):
+    # creates an ensemble of 2 critics and takes the min Q value
+    return EnsembleMLP(input_dim=obs_dim + action_dim, 
+                       output_dim=1, 
+                       n_networks=2,
+                       hidden_dims=hidden_dims, 
+                       activation=activation, 
+                       output_activation=output_activation,
+                       ensemble_aggregation=lambda x: torch.min(x, dim=0)[0],
+                       device=device)
+
+def make_min_discrete_action_critic(obs_dim, n_actions, hidden_dims=(128, 128), activation=nn.ReLU, output_activation=None, device='auto'):
+    # creates an ensemble of 2 critics and takes the min Q value
+    return EnsembleMLP(input_dim=obs_dim, 
+                       output_dim=n_actions, 
+                       n_networks=2,
+                       hidden_dims=hidden_dims, 
+                       activation=activation, 
+                       output_activation=output_activation,
+                       ensemble_aggregation=lambda x: torch.min(x, dim=0)[0],
+                       device=device)
 
 def make_cnn_sequential(input_dim, output_dim, hidden_dims=(32, 64), activation=nn.ReLU, output_activation=None):
     layers = []
@@ -125,14 +186,65 @@ def make_atari_nature_cnn(output_dim, input_dim=(84, 84, 4), device='auto', acti
     return model
 
 
-def make_continuous_action_mlp(input_dim, output_dim, hidden_dims=(128, 128), activation=nn.ReLU, output_activation=None):
-    layers = []
-    in_dim = input_dim
-    for hidden_dim in hidden_dims:
-        layers.append(nn.Linear(in_dim, hidden_dim))
-        layers.append(activation())
-        in_dim = hidden_dim
-    layers.append(nn.Linear(in_dim, output_dim))
-    if output_activation is not None:
-        layers.append(output_activation())
-    return nn.Sequential(*layers)
+def make_sac_critic_mlp(obs_dim, action_dim, hidden_dims=(128, 128), activation=nn.ReLU, output_activation=None):
+    # cat's the state and action inputs together then passes into an MLP
+    return ConcatInputMLP(obs_dim, 
+                          action_dim, 
+                          output_dim=1,
+                          hidden_dims=hidden_dims, 
+                          activation=activation, 
+                          output_activation=output_activation)
+
+class DummyActor(nn.Module):
+    def __init__(self, obs_dim, action_dim, device='auto'):
+        super(DummyActor, self).__init__()
+        self.obs_dim = obs_dim
+        self.action_dim = action_dim
+        self.device = auto_device(device)
+
+    def forward(self, state, deterministic=True):
+        raise NotImplementedError("DummyActor does not implement forward().")
+    
+class GaussianActor(nn.Module):
+    def __init__(self, obs_dim, action_dim, hidden_dims=(128, 128), activation=nn.ReLU, log_std_min=-20, log_std_max=2, device='auto'):
+        super(GaussianActor, self).__init__()
+        self.obs_dim = obs_dim
+        self.action_dim = action_dim
+        self.log_std_min = log_std_min
+        self.log_std_max = log_std_max
+        self.device = auto_device(device)
+
+        # Need to output mean and log_std for each action_dim
+        self.net = MLP(obs_dim, action_dim * 2, hidden_dims, activation).to(self.device)
+
+    def forward(self, state, deterministic=False):
+        state = preprocess_obs(state, device=self.device)
+        mean_logstd = self.net(state)
+        mean, log_std = torch.chunk(mean_logstd, 2, dim=-1)
+        log_std = torch.clamp(log_std, self.log_std_min, self.log_std_max)
+        std = torch.exp(log_std)
+
+        log_prob = 0.0 # deterministic samples have prob=1
+        if deterministic:
+            action = mean
+        else:
+            # Compute log probability
+            normal = torch.distributions.Normal(mean, std)
+            action = normal.rsample()  # Reparameterization trick
+            # TODO: should be equivalent to mean + std * N(0,1)
+            log_prob = normal.log_prob(action).sum(axis=-1, keepdim=True)
+            # TODO: implement squashing correction and flag
+            # Apply squashing function (tanh) and adjust log prob
+            action = torch.tanh(action)
+            log_prob -= torch.log(1 - action.pow(2) + 1e-6).sum(axis=-1, keepdim=True)
+
+        return action, log_prob
+    
+def make_gaussian_actor(obs_dim, action_dim, hidden_dims=(128, 128), activation=nn.ReLU, log_std_min=-20, log_std_max=2, device='auto'):
+    return GaussianActor(obs_dim, 
+                         action_dim, 
+                         hidden_dims, 
+                         activation, 
+                         log_std_min, 
+                         log_std_max, 
+                         device)

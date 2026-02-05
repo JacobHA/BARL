@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>BARL Dashboard Hub</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/main.css') }}" />
+</head>
+<body>
+  <div class="page">
+    <header class="header">
+      <div>
+        <h1>BARL Dashboard</h1>
+        <p class="subtitle">Run hub for metrics, notes, and artifacts</p>
+      </div>
+      <div class="header-actions">
+        <button id="tbBrowseBtn" class="btn">Find TB files</button>
+        {% if current_run_id %}
+        <a href="/run/{{ current_run_id }}" class="pill" style="text-decoration: none; cursor: pointer;">Current run: {{ current_run_id }}</a>
+        {% else %}
+        <div class="pill">Current run: None</div>
+        {% endif %}
+      </div>
+    </header>
+
+    <input id="tbDirPicker" type="file" webkitdirectory directory multiple style="display: none;" />
+
+    <section id="tbPanel" class="panel" style="display: none;">
+      <div class="panel-header">
+        <div>
+          <h2>TensorBoard Files</h2>
+          <span id="tbSummary" class="muted">No directory selected</span>
+        </div>
+        <button id="tbUploadBtn" class="btn btn-small" disabled>Import to dashboard</button>
+      </div>
+      <div id="tbFileList" class="files-list"></div>
+    </section>
+
+    <section class="panel">
+        <div class="panel-header">
+        <h2>Runs</h2>
+        <span class="muted">Showing folders under logs/</span>
+        </div>
+        <input id="runSearch" class="input" placeholder="Search runs" />
+        <div style="margin-top: 20px;"></div>
+        <div id="runs" class="run-grid"></div>
+        <div id="loadMoreContainer" style="display: none; text-align: center; margin-top: 20px;">
+        <div style="border-top: 2px dashed #444; margin: 20px 0;"></div>
+        <button id="loadMoreBtn" class="pill" style="padding: 12px 24px; cursor: pointer; background: #2d3748; border: none; border-radius: 8px; color: #e6e8ee;">Show all runs</button>
+        </div>
+    </section>
+    </div>
+
+    <script>
+    window.__CURRENT_RUN__ = "{{ current_run_id or '' }}";
+    </script>
+  <script src="{{ url_for('static', filename='js/hub.js') }}"></script>
+</body>
+</html>
