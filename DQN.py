@@ -4,6 +4,7 @@ import numpy as np
 import torch
 from Architectures import make_atari_nature_cnn, make_min_discrete_action_critic, make_mlp
 from BaseAgent import BaseAgent, get_new_params
+from Buffer import RNDUniformBuffer
 from network_monitor import NetworkMonitorCallback, create_monitor_for_agent
 from utils import check_polyak_tau, polyak, prepare_online_and_target
 
@@ -82,7 +83,8 @@ class DQN(BaseAgent):
     def gradient_step(self, grad_step):
         # Sample a batch from the replay buffer:
         batch = self.buffer.sample(self.batch_size)
-        loss = self.calculate_loss(batch)
+        should_log = (grad_step == 0) and (self.learn_env_steps % self.log_interval == 0)
+        loss = self.calculate_loss(batch, log_metrics=should_log)
         self.optimizer.zero_grad()
         # Clip gradient norm
         loss.backward()
@@ -90,7 +92,7 @@ class DQN(BaseAgent):
             torch.nn.utils.clip_grad_norm_(self.online_qs.parameters(), self.max_grad_norm)
         self.optimizer.step()
 
-    def calculate_loss(self, batch):
+    def calculate_loss(self, batch, log_metrics: bool = True):
         states, actions, rewards, next_states, dones = batch
         actions = actions.long()
         dones = dones.float()
@@ -115,16 +117,16 @@ class DQN(BaseAgent):
         # Calculate the q ("critic") loss:
         loss = torch.nn.functional.mse_loss(curr_q, expected_curr_q)
         
-        # Logging for debugging
-        self.log_history("train/online_q_mean", curr_q.mean().item(), self.learn_env_steps)
-        self.log_history("train/online_q_std", curr_q.std().item(), self.learn_env_steps)
-        self.log_history("train/online_q_min", curr_q.min().item(), self.learn_env_steps)
-        self.log_history("train/online_q_max", curr_q.max().item(), self.learn_env_steps)
-        self.log_history("train/target_q_mean", expected_curr_q.mean().item(), self.learn_env_steps)
-        self.log_history("train/target_q_std", expected_curr_q.std().item(), self.learn_env_steps)
-        self.log_history("train/reward_mean", rewards.mean().item(), self.learn_env_steps)
-        self.log_history("train/next_v_mean", next_v.mean().item(), self.learn_env_steps)
-        self.log_history("train/loss", loss.item(), self.learn_env_steps)
+        if log_metrics:
+            self.log_history("train/online_q_mean", curr_q.mean().item(), self.learn_env_steps)
+            self.log_history("train/online_q_std", curr_q.std().item(), self.learn_env_steps)
+            self.log_history("train/online_q_min", curr_q.min().item(), self.learn_env_steps)
+            self.log_history("train/online_q_max", curr_q.max().item(), self.learn_env_steps)
+            self.log_history("train/target_q_mean", expected_curr_q.mean().item(), self.learn_env_steps)
+            self.log_history("train/target_q_std", expected_curr_q.std().item(), self.learn_env_steps)
+            self.log_history("train/reward_mean", rewards.mean().item(), self.learn_env_steps)
+            self.log_history("train/next_v_mean", next_v.mean().item(), self.learn_env_steps)
+            self.log_history("train/loss", loss.item(), self.learn_env_steps)
 
         return loss
     
@@ -146,7 +148,9 @@ if __name__ == '__main__':
     logger = TensorboardLogger('logs/barl')
     #logger = WandBLogger(entity='jacobhadamczyk', project='test')
     # mlp = make_mlp(env.unwrapped.observation_space.shape[0], env.unwrapped.action_space.n, hidden_dims=[32, 32])#, activation=torch.nn.Mish)
-    # cnn = make_atari_nature_cnn(gym.make(env).action_space.n)
+    tmp_env = gym.make(env)
+    n_actions = tmp_env.action_space.n
+    tmp_env.close()
     # Create monitor configured for your agent type
     monitor, networks = create_monitor_for_agent(
         named_networks=["online_qs"],
@@ -155,29 +159,30 @@ if __name__ == '__main__':
     )
 
     callback = NetworkMonitorCallback(monitor, networks)
-    env = 'CartPole-v1'
     agent = DQN(env, 
-                architecture=make_mlp,
-                architecture_kwargs={'input_dim': gym.make(env).observation_space.shape[0],
-                                     'output_dim': gym.make(env).action_space.n,
-                                     'hidden_dims': [32, 32]},
+                architecture=make_atari_nature_cnn,
+                architecture_kwargs={'output_dim': n_actions},
+                # architecture_kwargs={'input_dim': gym.make(env).observation_space.shape[0],
+                #                      'output_dim': gym.make(env).action_space.n,
+                #                      'hidden_dims': [32, 32]},
                 loggers=(logger,),
-                learning_rate=0.001,
+                learning_rate=0.0003,
                 gamma=0.99,
                 exploration_fraction=0.16,
                 initial_epsilon=1.0,
                 minimum_epsilon=0.04,
-                train_interval=10,
+                train_interval=4,
                 gradient_steps=4,
-                batch_size=256,
+                batch_size=16,
                 use_target_network=True,
-                target_update_interval=10,
+                target_update_interval=10_000,
                 polyak_tau=1.0,
-                learning_starts=1000,
-                log_interval=500,
+                learning_starts=50_000,
+                log_interval=5000,
                 record_eval_video=True,
-                eval_video_every=50,
-                network_monitor=callback,  # <-- Add monitoring
+                eval_video_every=5,
+                # network_monitor=callback,  # <-- Add monitoring
                 )
 
-    agent.learn(total_timesteps=50_000)
+    agent.learn(total_timesteps=1000_000)
+

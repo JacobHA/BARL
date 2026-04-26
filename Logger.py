@@ -16,13 +16,14 @@ logger_types = {'wandb', 'std', 'tensorboard'}
 class BaseLogger:
     """Base class for experiment loggers."""
 
-    def __init__(self, run_dir: Optional[str] = None, history_flush_interval: float = 2.0):
+    def __init__(self, run_dir: Optional[str] = None, history_flush_interval: float = 30.0):
         self.history = {}  # Store history: {metric: [(step, value, timestamp)]}
         self.start_time = time()
         self.run_dir = None
         self.history_path = None
         self.history_flush_interval = history_flush_interval
         self._last_flush_time = 0.0
+        self._history_dirty = False
         if run_dir is not None:
             self.set_run_dir(run_dir)
             print("Logger enabled at", run_dir)
@@ -62,15 +63,26 @@ class BaseLogger:
             self.history[param] = []
         current_time = time() - self.start_time  # Time since training start
         self.history[param].append((step, value, current_time))
+        self._history_dirty = True
         self._maybe_flush_history()
 
     def _maybe_flush_history(self):
         """Flush history to disk if interval elapsed."""
         if not self.history_path:
             return
+        if not self._history_dirty:
+            return
         now = time()
         if now - self._last_flush_time < self.history_flush_interval:
             return
+        self._flush_history(now)
+
+    def _flush_history(self, now: Optional[float] = None):
+        """Persist cached history to disk."""
+        if not self.history_path or not self._history_dirty:
+            return
+        if now is None:
+            now = time()
         self._last_flush_time = now
         try:
             serializable = {
@@ -79,6 +91,7 @@ class BaseLogger:
             }
             with open(self.history_path, "w", encoding="utf-8") as f:
                 json.dump(serializable, f)
+            self._history_dirty = False
         except (IOError, TypeError):
             pass
 
@@ -92,7 +105,7 @@ class BaseLogger:
     
     def close(self):
         """Close the logger."""
-        pass
+        self._flush_history()
 
 
 class WandBLogger(BaseLogger):
@@ -125,6 +138,7 @@ class WandBLogger(BaseLogger):
 
     def close(self):
         """Close the WandB run."""
+        super().close()
         try:
             wandb.finish()
         except Exception:
@@ -167,20 +181,20 @@ class StdLogger(BaseLogger):
 
     def close(self):
         """Close the logger."""
-        pass
+        super().close()
 
 
 class TensorboardLogger(BaseLogger):
     """TensorBoard logger."""
 
-    def __init__(self, log_dir):
+    def __init__(self, log_dir, history_flush_interval: float = 30.0):
         folder_name = log_dir
         i = 1
         while os.path.exists(folder_name):
             folder_name = f"{log_dir}_{i}"
             i += 1
         self.writer = SummaryWriter(folder_name)
-        super().__init__(run_dir=self.writer.log_dir)
+        super().__init__(run_dir=self.writer.log_dir, history_flush_interval=history_flush_interval)
 
     def log_hparams(self, hparam_dict):
         """Log hyperparameters."""
@@ -206,4 +220,5 @@ class TensorboardLogger(BaseLogger):
 
     def close(self):
         """Close the TensorBoard writer."""
+        super().close()
         self.writer.close()
