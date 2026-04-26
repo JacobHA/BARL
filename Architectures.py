@@ -168,11 +168,21 @@ def preprocess_obs(obs, device, greyscale=False):
 
     # Handle shape conversion first (before dtype checks)
     if len(obs.shape) == 3:
-        # Convert (H, W, C) to (C, H, W) then add batch dimension to get (B, C, H, W)
-        obs = obs.permute(2, 0, 1).unsqueeze(0).to(device=device)
+        # Accept both channel-first (C, H, W) and channel-last (H, W, C).
+        if obs.shape[0] in (1, 3, 4):
+            obs = obs.unsqueeze(0).to(device=device)
+        elif obs.shape[2] in (1, 3, 4):
+            obs = obs.permute(2, 0, 1).unsqueeze(0).to(device=device)
+        else:
+            obs = obs.unsqueeze(0).to(device=device)
     elif len(obs.shape) == 4:
-        # Change to (N, C, H, W) format
-        obs = obs.permute(0, 3, 1, 2).to(device)
+        # Accept both (N, C, H, W) and (N, H, W, C).
+        if obs.shape[1] in (1, 3, 4):
+            obs = obs.to(device=device)
+        elif obs.shape[3] in (1, 3, 4):
+            obs = obs.permute(0, 3, 1, 2).to(device=device)
+        else:
+            obs = obs.to(device=device)
     else:
         obs = obs.to(device=device)
 
