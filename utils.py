@@ -155,17 +155,24 @@ def zip_strict(*iterables):
     # Yield the zipped items
     yield from zip(*iterables, strict=True)
 
-def env_id_to_envs(env_id, render, is_atari=False, permute_dims=False, **env_kwargs):
+def env_id_to_envs(env_id, render, is_atari=False, permute_dims=False, record_video=False, env_kwargs=None):
+    if env_kwargs is None:
+        env_kwargs = {}
     if isinstance(env_id, gym.Env):
         env = env_id
-        # Make a new copy for the eval env:
+        # Make a new copy for the eval env with proper render_mode for video recording
         eval_env = copy.deepcopy(env_id)
+        # If video recording is enabled, need to ensure eval_env has rgb_array render mode
+        if record_video and (not hasattr(eval_env, 'render_mode') or (hasattr(eval_env, 'render_mode') and eval_env.render_mode != 'rgb_array')):
+            # Try to recreate with proper render mode if we have the spec
+            if hasattr(eval_env, 'spec') and hasattr(eval_env.spec, 'id'):
+                eval_env = gym.make(eval_env.spec.id, render_mode='rgb_array', **env_kwargs)
         return env, eval_env
     if is_atari:
         return atari_env_id_to_envs(env_id, render, n_envs=1, frameskip=4, framestack_k=4, permute_dims=permute_dims)
     else:
         env = gym.make(env_id, **env_kwargs)
-        eval_env = gym.make(env_id, render_mode='human' if render else None, **env_kwargs)
+        eval_env = gym.make(env_id, render_mode='rgb_array' if record_video else ('human' if render else None), **env_kwargs)
         return env, eval_env
 
 from gymnasium.wrappers.atari_preprocessing import AtariPreprocessing
@@ -229,18 +236,31 @@ def make_video_env(
     framestack_k: Optional[int] = 4,
     grayscale_obs: bool = True,
     episode_trigger: Optional[Callable[[int], bool]] = None,
+    env_kwargs: dict = None,
 ):
     """
     Create a single evaluation env configured for video recording.
     Uses render_mode="rgb_array" to ensure video capture works across environments.
     """
+    if env_kwargs is None:
+        env_kwargs = {}
+    
     try:
         from gymnasium.wrappers import RecordVideo
     except Exception:
         RecordVideo = None
 
     if isinstance(env_id, gym.Env):
-        eval_env = copy.deepcopy(env_id)
+        # Try to recreate with proper render mode if we have the spec
+        if hasattr(env_id, 'spec') and hasattr(env_id.spec, 'id') and env_id.spec is not None:
+            eval_env = gym.make(env_id.spec.id, render_mode='rgb_array', **env_kwargs)
+            # Reapply any time limit wrapper if present
+            if hasattr(env_id, '_max_episode_steps'):
+                from gymnasium.wrappers import TimeLimit
+                eval_env = TimeLimit(eval_env, max_episode_steps=env_id._max_episode_steps)
+        else:
+            # Fallback to deepcopy, but warn that video might not work
+            eval_env = copy.deepcopy(env_id)
     elif is_atari:
         eval_env = gym.make(env_id, render_mode='rgb_array', frameskip=frameskip)
         eval_env = AtariPreprocessing(
@@ -259,7 +279,7 @@ def make_video_env(
             eval_env = PermuteAtariObs(eval_env)
         eval_env = FireResetEnv(eval_env)
     else:
-        eval_env = gym.make(env_id, render_mode='rgb_array')
+        eval_env = gym.make(env_id, render_mode='rgb_array', **env_kwargs)
 
     if RecordVideo is not None and video_folder:
         if episode_trigger is None:
