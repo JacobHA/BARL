@@ -144,6 +144,24 @@ async function saveNotes() {
   });
 }
 
+async function flushLogs() {
+  try {
+    const res = await fetch(`/api/runs/${runId}/flush`, { method: 'POST' });
+    const data = await res.json();
+    if (data && data.success) {
+      const btn = document.getElementById('flushLogsBtn');
+      if (btn) {
+        btn.textContent = 'Flushed';
+        setTimeout(() => (btn.textContent = 'Flush Logs'), 1200);
+      }
+    } else {
+      console.warn('Flush request failed', data);
+    }
+  } catch (e) {
+    console.error('Failed to send flush request:', e);
+  }
+}
+
 async function fetchHparams() {
   const res = await fetch(`/api/runs/${runId}/hparams`);
   const data = await res.json();
@@ -244,6 +262,14 @@ function renderVideos(videos) {
     container.appendChild(card);
   });
 }
+
+// Wire UI button for manual flush
+document.addEventListener('DOMContentLoaded', () => {
+  const flushBtn = document.getElementById('flushLogsBtn');
+  if (flushBtn) {
+    flushBtn.addEventListener('click', flushLogs);
+  }
+});
 
 async function fetchBufferStats() {
   const res = await fetch(`/api/runs/${runId}/buffer_stats`);

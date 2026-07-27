@@ -3,7 +3,7 @@ import gymnasium
 import numpy as np
 import torch
 
-from Architectures import make_min_discrete_action_critic, make_mlp
+from Architectures import make_cnn_sequential, make_min_discrete_action_critic, make_mlp
 from BaseAgent import BaseAgent, get_new_params
 from callbacks import AUCCallback
 from utils import polyak, check_polyak_tau, prepare_online_and_target
@@ -121,26 +121,40 @@ class SoftQAgent(BaseAgent):
 
 if __name__ == '__main__':
     import gymnasium as gym
-    env = 'CartPole-v1'
+    from gym.wrappers import TimeLimit
+    env = 'CarRacing-v2'
     logger = TensorboardLogger('logs/acro')
     #logger = WandBLogger(entity='jacobhadamczyk', project='test')
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
     # mlp = make_min_discrete_action_critic(env.unwrapped.observation_space.shape[0], env.unwrapped.action_space.n, hidden_dims=[32, 32], device=device)
     
     agent = SoftQAgent(env,
-                       architecture=make_min_discrete_action_critic,
-                       architecture_kwargs={'obs_dim': gym.make(env).observation_space.shape[0],
-                                            'n_actions': gym.make(env).action_space.n,
-                                            'hidden_dims': [32, 32]},
+                       env_kwargs={'continuous': False, 'max_episode_steps': 1000},
+                       architecture=make_cnn_sequential,
+                    #    architecture_kwargs={'obs_dim': gym.make(env).observation_space.shape[0],
+                    #                         'n_actions': gym.make(env).action_space.n,
+                    #                         'n_networks': 6,
+                    #                         'hidden_dims': [32, 32]},
+                          architecture_kwargs={'input_dim': gym.make(env, continuous=False).observation_space.shape,
+                                              'output_dim': gym.make(env, continuous=False).action_space.n,
+                                            #   'n_networks': 2,
+                                                'greyscale': True,  # Add this
+
+                                              'hidden_dims': [16, 8]
+                                              },
                        loggers=(logger,),
-                       learning_rate=0.001,
+                       learning_rate=0.0003,
                        beta=5,
                        train_interval=10,
                        gradient_steps=4,
                        batch_size=256,
+                       learning_starts=5000,
                        use_target_network=True,
-                       target_update_interval=10,
+                       target_update_interval=100,
                        polyak_tau=1.0,
                        eval_callbacks=[AUCCallback],
+                       record_eval_video=True,
+                       log_interval=1000,
+                       eval_video_every=2,
                        )
-    agent.learn(total_timesteps=26000)
+    agent.learn(total_timesteps=2000000)

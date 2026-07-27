@@ -238,8 +238,51 @@ class AtariNatureCNN(nn.Module):
         x = self.fc_layers(x)
         return x
 
+
+class CarRacingCNN(nn.Module):
+    def __init__(self, output_dim, input_dim=(96, 96, 3), device='auto', activation=nn.ReLU, hidden_dim=512):
+        super(CarRacingCNN, self).__init__()
+        self.device = auto_device(device)
+
+        n_channels = input_dim[2]
+        self.conv_layers = nn.Sequential(
+            nn.Conv2d(n_channels, 32, kernel_size=8, stride=4, device=self.device),
+            activation(),
+            nn.Conv2d(32, 64, kernel_size=4, stride=2, device=self.device),
+            activation(),
+            nn.Conv2d(64, 64, kernel_size=3, stride=1, device=self.device),
+            activation(),
+            nn.Flatten(start_dim=1)
+        ).to(self.device)
+
+        with torch.no_grad():
+            rand_inp = torch.rand(1, *input_dim)
+            rand_inp = preprocess_obs(rand_inp, device=self.device)
+            flat_size = self.conv_layers(rand_inp).shape[1]
+
+        print(f"Using CarRacing CNN with {flat_size}-dim. flattened output.")
+
+        self.fc_layers = nn.Sequential(
+            nn.Linear(flat_size, hidden_dim, device=self.device),
+            activation(),
+            nn.Linear(hidden_dim, output_dim, device=self.device)
+        )
+        print(f"Parameter count: {sum(p.numel() for p in self.parameters())}")
+
+    def forward(self, x):
+        x = preprocess_obs(x, device=self.device)
+        x = x.to(self.device)
+        x = self.conv_layers(x)
+        x = self.fc_layers(x)
+        return x
+
 def make_atari_nature_cnn(output_dim, input_dim=(84, 84, 4), device='auto', activation=nn.ReLU, hidden_dim=512):
     model = AtariNatureCNN(output_dim, input_dim, device, activation, hidden_dim)
+    return model
+
+
+def make_carracing_cnn(output_dim, input_dim=(96, 96, 3), device='auto', activation=nn.ReLU, hidden_dim=64):
+    model = CarRacingCNN(output_dim, input_dim, device, activation, hidden_dim)
     return model
 
 

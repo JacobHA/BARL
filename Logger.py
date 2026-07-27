@@ -3,6 +3,8 @@ import json
 import logging
 import math
 import os
+import threading
+import tempfile
 from functools import lru_cache
 from time import time
 from typing import Optional
@@ -24,6 +26,7 @@ class BaseLogger:
         self.history_flush_interval = history_flush_interval
         self._last_flush_time = 0.0
         self._history_dirty = False
+        self._history_lock = threading.Lock()
         if run_dir is not None:
             self.set_run_dir(run_dir)
             print("Logger enabled at", run_dir)
@@ -59,11 +62,12 @@ class BaseLogger:
             if math.isnan(value) or math.isinf(value):
                 value = None
         
-        if param not in self.history:
-            self.history[param] = []
-        current_time = time() - self.start_time  # Time since training start
-        self.history[param].append((step, value, current_time))
-        self._history_dirty = True
+        with self._history_lock:
+            if param not in self.history:
+                self.history[param] = []
+            current_time = time() - self.start_time  # Time since training start
+            self.history[param].append((step, value, current_time))
+            self._history_dirty = True
         self._maybe_flush_history()
 
     def _maybe_flush_history(self):
@@ -79,21 +83,51 @@ class BaseLogger:
 
     def _flush_history(self, now: Optional[float] = None):
         """Persist cached history to disk."""
-        if not self.history_path or not self._history_dirty:
+        if not self.history_path:
             return
         if now is None:
             now = time()
-        self._last_flush_time = now
-        try:
-            serializable = {
-                metric: [[step, value, ts] for step, value, ts in entries]
-                for metric, entries in self.history.items()
-            }
-            with open(self.history_path, "w", encoding="utf-8") as f:
-                json.dump(serializable, f)
+
+        # Take a snapshot of the history under lock and clear dirty flag.
+        with self._history_lock:
+            if not self._history_dirty:
+                # update last flush time even if nothing to do
+                self._last_flush_time = now
+                return
+            try:
+                serializable = {
+                    metric: [[step, value, ts] for step, value, ts in entries]
+                    for metric, entries in self.history.items()
+                }
+            except Exception:
+                serializable = {}
+            # mark as flushed; new entries will set this True again
             self._history_dirty = False
-        except (IOError, TypeError):
-            pass
+            self._last_flush_time = now
+
+        def _writer(snapshot, path):
+            try:
+                dirpath = os.path.dirname(path)
+                os.makedirs(dirpath, exist_ok=True)
+                fd, tmp_path = tempfile.mkstemp(dir=dirpath, prefix="history_", suffix=".json")
+                try:
+                    with os.fdopen(fd, "w", encoding="utf-8") as f:
+                        json.dump(snapshot, f)
+                    # atomic replace
+                    os.replace(tmp_path, path)
+                finally:
+                    # ensure temp file removed if replace failed
+                    if os.path.exists(tmp_path):
+                        try:
+                            os.remove(tmp_path)
+                        except Exception:
+                            pass
+            except Exception:
+                pass
+
+        # Write in background to avoid blocking the main loop
+        thread = threading.Thread(target=_writer, args=(serializable, self.history_path), daemon=True)
+        thread.start()
 
     def log_video(self, video_path):
         """Log video."""
@@ -187,7 +221,7 @@ class StdLogger(BaseLogger):
 class TensorboardLogger(BaseLogger):
     """TensorBoard logger."""
 
-    def __init__(self, log_dir, history_flush_interval: float = 30.0):
+    def __init__(self, log_dir, history_flush_interval: float = 10.0):
         folder_name = log_dir
         i = 1
         while os.path.exists(folder_name):

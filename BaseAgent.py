@@ -307,6 +307,25 @@ class BaseAgent:
         self.learn_env_steps += 1
         self.total_env_steps += 1
 
+        # Check for external flush trigger file created by the dashboard.
+        try:
+            run_dir = self._get_run_dir()
+            if run_dir:
+                trigger_path = os.path.join(run_dir, "flush_now")
+                if os.path.exists(trigger_path):
+                    for logger in self.loggers:
+                        try:
+                            # call internal flush to persist any cached history
+                            if hasattr(logger, '_flush_history'):
+                                logger._flush_history()
+                        except Exception:
+                            pass
+                    try:
+                        os.remove(trigger_path)
+                    except Exception:
+                        pass
+        except Exception:
+            pass
         if self.train_this_step:
             if self.learn_env_steps > self.learning_starts:
                 self._train(self.gradient_steps)

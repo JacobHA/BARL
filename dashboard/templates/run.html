@@ -4,6 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Run {{ run_id }} · BARL</title>
+  <link rel="icon" type="image/png" href="{{ url_for('static', filename='barrel.png') }}">
   <link rel="stylesheet" href="{{ url_for('static', filename='css/main.css') }}" />
   <script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
 </head>
@@ -17,6 +18,7 @@
       <div class="header-actions">
         <a class="btn" href="/">← Back to hub</a>
         <button id="trackUpdatesBtn" class="btn">Track Updates: ON</button>
+        <button id="flushLogsBtn" class="btn">Flush Logs</button>
         <button id="toggleAxisBtn" class="btn">Toggle X-Axis</button>
       </div>
     </header>
